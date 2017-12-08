@@ -1,0 +1,3 @@
+[submodule "embeddings"]
+	path = embeddings
+	url = git@github.com:auriml/embeddings.git
