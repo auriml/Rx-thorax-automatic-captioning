@@ -32,7 +32,9 @@ login="Login"
 ses = requests.session()
 res = ses.get("https://ceib.cipf.es/xnat", verify=False)
 sessionId = ses.cookies['JSESSIONID']
-payload = {'login': 'Login', 'JSESSIONID' : sessionId}
+
+
+payload = {'login': 'Login', 'JSESSIONID' : sessionId, 'SESSION_EXPIRATION_TIMEOUT': False }
 r = ses.post(url, data=payload,  auth= (j_username, j_password),verify=False)
 
 if ( os.path.isdir(image_dir) == False) :
