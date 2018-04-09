@@ -10,7 +10,7 @@ parser.add_argument('-f', metavar='dataset_asoc_csv', type=str, nargs=1,
 parser.add_argument('-r',  default=False  ,
                     help='If true download all images and rewrite downloaded ones. If false skip downloaded images and only download new ones. Default false')
 parser.add_argument('-d', metavar='dir_to_save_images', type=str, nargs=1,
-                    help='dirname to save images (default  image_dir)')
+                    help='dirname to save images (default  ../SJ/image_dir)')
 parser.add_argument('u', metavar='username', type=str, nargs=1,
                     help='XNAT account username')
 parser.add_argument('p', metavar='password', type=str, nargs=1,
@@ -20,7 +20,7 @@ args = parser.parse_args()
 dataset_asoc = args.f[0] if args.f  else  './dataset_asoc.csv'
 j_username = args.u[0] if args.u  else  ''
 j_password = args.p[0] if args.p  else  ''
-image_dir = args.d[0] if args.d  else  'image_dir'
+image_dir = args.d[0] if args.d  else  '../SJ/image_dir'
 replace = args.r
 
 
