@@ -6,7 +6,7 @@ import pandas as pd
 
 parser = argparse.ArgumentParser(description='Download Rx images from XNAT')
 parser.add_argument('-f', metavar='dataset_asoc_csv', type=str, nargs=1,
-                    help='filename (default  delimited by ";" with the following fields: Access Number ; MR ID XNAT ; Subject anonymized ; Experiment UID')
+                    help='filename (default  delimited by "," with the following fields: Access Number ; MR ID XNAT ; Subject anonymized ; Experiment UID')
 parser.add_argument('-r',  default=False  ,
                     help='If true download all images and rewrite downloaded ones. If false skip downloaded images and only download new ones. Default false')
 parser.add_argument('-d', metavar='dir_to_save_images', type=str, nargs=1,
@@ -40,14 +40,14 @@ r = ses.post(url, data=payload,  auth= (j_username, j_password),verify=False)
 if ( os.path.isdir(image_dir) == False) :
     os.mkdir(image_dir)
 
-imagesDF = pd.read_csv(dataset_asoc, sep = ';', )
+imagesDF = pd.read_csv(dataset_asoc, sep = ',', )
 for row in  imagesDF.iterrows():
     row = row[1]
-    exp_id = row[' MR ID XNAT ']
+    exp_id = row['MR ID XNAT']
     exist = os.path.exists(image_dir + "/" + str(exp_id))
     exist_1 = (not replace and not os.path.exists(image_dir + "/" + str(exp_id)))
     if replace or (not replace and not os.path.exists(image_dir + "/" + str(exp_id))) :
-        r = ses.get(root_url + "/data/archive/projects/padchest_ds17/subjects/"+ row[' Subject anonymized '] +"/experiments/"+ str(exp_id) +"/scans/ALL/files?format=zip", verify =False)
+        r = ses.get(root_url + "/data/archive/projects/padchest_ds17/subjects/"+ row['Subject anonymized'] +"/experiments/"+ str(exp_id) +"/scans/ALL/files?format=zip", verify =False)
         z = zipfile.ZipFile(io.BytesIO(r.content))
         z.extractall(image_dir)
         print("downloaded: " + str(exp_id))
