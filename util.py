@@ -3,7 +3,7 @@ import os
 import sys
 import argparse
 import numpy as np
-from skimage import io, exposure
+from skimage import io, exposure, transform, img_as_float
 import pydicom
 import re
 
@@ -44,6 +44,9 @@ parser.add_argument('-e',action='store_true',
 parser.add_argument('-imgs', metavar='MR_ID_XNAT', type=str, nargs=1,
                     help='preprocess all images of a study identified with MR ID XNAT')
 
+parser.add_argument('-imgm', metavar='n_samples', type=int, nargs=1,
+                    help='generate mean X-Ray picture and mean standard deviation picture')
+
 #parser.add_argument('u', metavar='username', type=str, nargs=1,
                     #help='XNAT account username')
 #parser.add_argument('p', metavar='password', type=str, nargs=1,
@@ -61,6 +64,7 @@ numerical_field = args.dn if args.dn  else  None
 split_images_side_front = args.split if args.split  else  None
 exclude = args.e if args.e  else  None
 imgs_ID_XNAT = args.imgs[0] if args.imgs  else  None
+sample_image = args.imgm[0] if args.imgm  else  None
 
 
 #j_username = args.u[0] if args.u  else  ''
@@ -469,12 +473,18 @@ def summarizeAllStudies(file = all_info_studies_file):
     temp = temp[temp['Exposure'] > 0]
     temp['Year'] = temp['Year'].apply(lambda x: str(x)[:4] + '-' + str(x)[4:6] + '-' + str(x)[6:8]).astype('datetime64[ns]')
     temp['Year'] = pd.DatetimeIndex(temp['Year']).year.values
-    #table_exposition_years = pd.crosstab(index=temp['Exposure'], columns=temp['Year'])
-    temp.boxplot()
+    pivot = temp.pivot(columns='Year', values='Exposure')
+    pivot.boxplot()
     plt.title("Radiation Exposure by Study Year  (n = " + str(n) + ")" )
     plt.xlabel("Years")
     plt.ylabel("Radiation Exposure (mAs)")
     plt.savefig('graphs/RadiationExposureByYear.png')
+    plt.gcf().clear()
+    pivot.boxplot(showfliers=False)
+    plt.title("Radiation Exposure by Study Year  (n = " + str(n) + ")" )
+    plt.xlabel("Years")
+    plt.ylabel("Radiation Exposure (mAs)")
+    plt.savefig('graphs/RadiationExposureByYear_NotOutliers.png')
     plt.gcf().clear()
 
 
@@ -482,7 +492,7 @@ def summarizeAllStudies(file = all_info_studies_file):
     split = splitImagesFrontalSide(all_info_studies_file)
     temp = all_studies_DF['Exposure']
     temp['Position'] = np.where(all_studies_DF['ImagePath'].isin(split['side'].values), 'side', 'unknown')
-    temp['Position'] = np.where(all_studies_DF['ImagePath'].isin(split['front'].values), 'front')
+    #temp['Position'] = np.where(all_studies_DF['ImagePath'].isin(split['front'].values), 'front')
 
 
 
@@ -493,7 +503,30 @@ def summarizeAllStudies(file = all_info_studies_file):
     #generate mean X-Ray picture and mean standard deviation picture
 
 
+
     return summary
+
+def generateMeanXRay(sample = 100):
+    #load a sample (n =100 ) of frontal views
+    front_studies = pd.read_csv(root + '/Rx-thorax-automatic-captioning' + '/position_front_images.csv',  header = 0)
+    front_studies = front_studies.sample(n = 100,random_state=3)
+
+    concatenated_img = np.full((400, 400), 0) #remove
+    for path in front_studies['ImagePath']:
+        path = '/image_dir_processed/241024778843643004390367414464471495529_me2shq.png'
+        img = img_as_float(io.imread(root + '/SJ' + path))
+        img = transform.resize(img, (400,400))
+        img = np.uint8(img * 255)
+        np.concatenate((concatenated_img,img), axis=1)
+    #calculate mean
+    np.mean(concatenated_img, axis=1)
+
+
+
+
+
+    return
+
 
 def getAllInfoPatient(patient_ID_XNAT= False , patient_ID=False):
     pd.set_option('display.max_colwidth', -1)
@@ -659,3 +692,6 @@ if imgs_ID_XNAT is not None:
         preprocess_images(study_ids)
     else:
         preprocess_images([imgs_ID_XNAT])
+
+if sample_image is not None:
+    generateMeanXRay(sample_image)
