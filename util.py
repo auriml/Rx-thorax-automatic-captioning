@@ -510,20 +510,55 @@ def generateMeanXRay(sample = 100):
     #load a sample (n =100 ) of frontal views
     front_studies = pd.read_csv(root + '/Rx-thorax-automatic-captioning' + '/position_front_images.csv',  header = 0)
     front_studies = front_studies.sample(n = 100,random_state=3)
-
-    concatenated_img = np.full((400, 400), 0) #remove
-    for path in front_studies['ImagePath']:
-        path = '/image_dir_processed/241024778843643004390367414464471495529_me2shq.png'
-        img = img_as_float(io.imread(root + '/SJ' + path))
+    front_studies = ['9961285849383500700503298594198174646_x4sdaa.png',
+                     '99657581807702772616942665484579165452_4yp6fk.png',
+                     '99657581807702772616942665484579165452_6exj3e.png',
+                     '99676390802057808321172787380479007493_fr7m8g.png',
+                     '99689012940057299294497464743812181395_yxad8i.png',
+                     '99720463493880780353096930628763941828_c8upl6.png',
+                     '99720463493880780353096930628763941828_c8upl8.png',
+                     '99741777424569004107876945134365006298_gc3ol0.png',
+                     '99744230716892055301280916536204938895_o8z84i.png',
+                     '99744230716892055301280916536204938895_oo9nk5.png',
+                     '99746950422712167962264033947844105338_2_xdw8ve.png',
+                     '99746950422712167962264033947844105338_gzzfd3.png',
+                     '99761606121467076641347432617611741801_7ivuix.png',
+                     '99761606121467076641347432617611741801_9dy7mx.png',
+                     '99828447599555877271076597249310000456_b3fwyn.png',
+                     '99828447599555877271076597249310000456_lys6co.png',
+                     '99846027070905945425250173033141574241_r1i0ek.png',
+                     '99846027070905945425250173033141574241_r1i0em.png',
+                     '9985441410843219233283392583438926648_yd9nnr.png',
+                     '99856744558733960186100146988515134704_7ah98w.png',
+                     '99856744558733960186100146988515134704_j41xjm.png',
+                     '99892007883590670741722261257582487413_1oo6g9.png',
+                     '99901580345273320160032314107286962521_ku25je.png',
+                     '99901580345273320160032314107286962521_mqbbig.png',
+                     '99902406960705815671548533715810073618_wu5ixe.png',
+                     '99910083627741838065735299152000674832_ma4b5z.png',
+                     '99910083627741838065735299152000674832_nqrjxw.png',
+                     '99917243543351018409698730282530617147_5cj8jm.png',
+                     '99917243543351018409698730282530617147_6f0xsd.png',
+                     '9992487839101151026510218029061401063_xwb6x2.png',
+                     '9992487839101151026510218029061401063_xwb6x4.png',
+                     '99927028802994944546151436477164464059_ihb0dm.png']
+    concatenated_img = np.full((400, 400,1), 0) #remove
+    #for path in front_studies['ImagePath']:
+    for path in front_studies: #change
+        #path = '/image_dir_processed/241024778843643004390367414464471495529_me2shq.png'
+        path = root + '/SJ/image_dir_processed/' + path #change
+        img = img_as_float(io.imread(path))
         img = transform.resize(img, (400,400))
+        img = np.expand_dims(img, -1)
         img = np.uint8(img * 255)
-        np.concatenate((concatenated_img,img), axis=1)
+
+        concatenated_img = np.concatenate((concatenated_img,img), axis=2)
+
     #calculate mean
-    np.mean(concatenated_img, axis=1)
-
-
-
-
+    mean = np.uint8(np.mean(concatenated_img, axis=2))
+    io.imsave('graphs/MeanImage.png',mean)
+    std = np.uint8(np.std(concatenated_img, axis=2))
+    io.imsave('graphs/StdImage.png',std)
 
     return
 
