@@ -45,19 +45,28 @@ parser.add_argument('-imgs', metavar='MR_ID_XNAT', type=str, nargs=1,
                     help='preprocess all images of a study identified with MR ID XNAT')
 
 parser.add_argument('-imgm', metavar='n_samples', type=int, nargs=1,
-                    help='generate mean X-Ray picture and mean standard deviation picture')
+                    help='generate mean X-Ray picture and mean standard deviation picture for n samples')
+parser.add_argument('-fst',  metavar='filename', type=str, nargs='?', default= True,
+                    help='save in filename all info for all studies by sentence topic. Default filename: /all_info_studies_sent_topics.csv  ')
+parser.add_argument('-est',  metavar='filename', type=str, nargs='?', default= True,
+                    help='extract and save in filename sentence topics. Default filename: /extract_sent_topics.csv  ')
+
 
 #parser.add_argument('u', metavar='username', type=str, nargs=1,
                     #help='XNAT account username')
 #parser.add_argument('p', metavar='password', type=str, nargs=1,
                     #help='XNAT account password')
 all_info_studies_file = '/all_info_studies.csv'
+all_info_studies_st_file = 'all_info_studies_sent_topics.csv'
+extract_topics_file = 'extract_sent_topics.csv'
+
 args = parser.parse_args()
 ID_XNAT = args.s[0] if args.s  else  None
 patient_ID_XNAT = args.ps[0] if args.ps  else  None
 patient_ID = args.p[0] if args.p  else  None
 modality = args.m if args.m  else  None
 filename =  all_info_studies_file if args.f is None else None
+filename_st =  all_info_studies_st_file if args.fst is None else None
 filename_to_describe =  all_info_studies_file if args.d is None else None
 categorical_field = args.dc if args.dc  else  None
 numerical_field = args.dn if args.dn  else  None
@@ -65,6 +74,7 @@ split_images_side_front = args.split if args.split  else  None
 exclude = args.e if args.e  else  None
 imgs_ID_XNAT = args.imgs[0] if args.imgs  else  None
 sample_image = args.imgm[0] if args.imgm  else  None
+extract_topics = extract_topics_file if args.est is None else None
 
 
 #j_username = args.u[0] if args.u  else  ''
@@ -232,6 +242,10 @@ def saveAllStudyInfoFullDataset(save_file = all_info_studies_file, dataset_asoc_
 
     f.close()
 
+
+
+
+
 def summarizeAllStudiesDicomModality():
     path = root +  '/SJ/image_dir/'
     fieldValues = {}  # create an empty field dictionary of values
@@ -262,9 +276,17 @@ def summarizeAllStudiesDicomModality():
 
 def splitImagesFrontalSide(file = all_info_studies_file):
     all_studies_DF = pd.read_csv(root + '/Rx-thorax-automatic-captioning' + file, sep = ';' , header = 0)
+    #exclude non-evaluable images
+    if os.path.exists('Excluded_images.csv'):
+        excluded = pd.read_csv('Excluded_images.csv', sep = ',' , header = 0)
+    else:
+        excluded = generateExcludedImageList()
+    idx = all_studies_DF[all_studies_DF['ImagePath'].isin(excluded['ImagePath'])].index.values
+    print("Number of excluded images: " + str(len(idx)))
+    all_studies_DF = all_studies_DF.drop(idx)
 
     #Side view images
-    # where StudyDescription is in lat array (a manual selection from values of StudyDescription,
+    # where StudyDescription is in lat array (a manual selection from values of StudyDescription,_
     # please run summarizeAllStudiesByCategory when new images are added to dataset to identify new values)
     lat = ["Lateral","Lateralizq", "LatVertical", "LatHorizontal", "Decblatizq"]
     side_images = all_studies_DF[all_studies_DF['SeriesDescription'].isin(lat)]
@@ -489,64 +511,60 @@ def summarizeAllStudies(file = all_info_studies_file):
 
 
     #Radiation exposure levels by type of Rx (Lateral vs AP)
-    split = splitImagesFrontalSide(all_info_studies_file)
-    temp = all_studies_DF['Exposure']
-    temp['Position'] = np.where(all_studies_DF['ImagePath'].isin(split['side'].values), 'side', 'unknown')
-    #temp['Position'] = np.where(all_studies_DF['ImagePath'].isin(split['front'].values), 'front')
+    position = pd.read_csv('position_side_images.csv')
+    position['Position'] = 'side'
+    position = pd.concat([position, pd.read_csv('position_front_images.csv')], axis = 0)
+    position.Position.ix[position['Position'] != 'side'] = 'front'
+    print("Type of position views: frontal vs lateral")
+    print(position.Position.describe())
+    n_by_position = position.groupby('Position')['ImagePath'].apply(lambda x: x.count())
+    n_side = n_by_position.ix['side']
+    n_front = n_by_position.ix['front']
+    print(n_by_position)
+    position['Exposure'] = pd.to_numeric(position['Exposure'], errors='coerce', downcast='integer' )
 
+    pivot = position.pivot(columns='Position', values='Exposure')
+    pivot.boxplot()
+    plt.title("Radiation Exposure by Position View  (# front = " + str(n_front) + ", # side = "+ str(n_side) )
+    plt.xlabel("Position View")
+    plt.ylabel("Radiation Exposure (mAs)")
+    plt.savefig('graphs/RadiationExposureByPositionView.png')
+    plt.gcf().clear()
 
+    pivot = position.pivot(columns='Position', values='Exposure')
+    pivot.boxplot(showfliers = False)
+    plt.title("Radiation Exposure by Position View  (# front = " + str(n_front) + ", # side = "+ str(n_side) )
+    plt.xlabel("Position View")
+    plt.ylabel("Radiation Exposure (mAs)")
+    plt.savefig('graphs/RadiationExposureByPositionViewWithoutOutlayer.png')
+    plt.gcf().clear()
 
+    position = pd.concat([position, pd.read_csv('position_toreview_images.csv')], axis = 0)
+    position.Position.ix[position['Position'].isna()] = 'unk'
+    position.Position.hist()
+    plt.title("Position View Histogram  (n = " + str(n) + ")" )
+    plt.xlabel("Position View")
+    plt.ylabel("Images")
+    plt.savefig('graphs/PositionViewHistogram.png')
+    plt.gcf().clear()
 
     #Dynamic Range Distribution by type of Rx (Lateral vs AP)
 
 
-    #generate mean X-Ray picture and mean standard deviation picture
+
 
 
 
     return summary
 
-def generateMeanXRay(sample = 100):
+def generateMeanXRay(sample):
     #load a sample (n =100 ) of frontal views
+    n_sample = sample if sample else 100
     front_studies = pd.read_csv(root + '/Rx-thorax-automatic-captioning' + '/position_front_images.csv',  header = 0)
-    front_studies = front_studies.sample(n = 100,random_state=3)
-    front_studies = ['9961285849383500700503298594198174646_x4sdaa.png',
-                     '99657581807702772616942665484579165452_4yp6fk.png',
-                     '99657581807702772616942665484579165452_6exj3e.png',
-                     '99676390802057808321172787380479007493_fr7m8g.png',
-                     '99689012940057299294497464743812181395_yxad8i.png',
-                     '99720463493880780353096930628763941828_c8upl6.png',
-                     '99720463493880780353096930628763941828_c8upl8.png',
-                     '99741777424569004107876945134365006298_gc3ol0.png',
-                     '99744230716892055301280916536204938895_o8z84i.png',
-                     '99744230716892055301280916536204938895_oo9nk5.png',
-                     '99746950422712167962264033947844105338_2_xdw8ve.png',
-                     '99746950422712167962264033947844105338_gzzfd3.png',
-                     '99761606121467076641347432617611741801_7ivuix.png',
-                     '99761606121467076641347432617611741801_9dy7mx.png',
-                     '99828447599555877271076597249310000456_b3fwyn.png',
-                     '99828447599555877271076597249310000456_lys6co.png',
-                     '99846027070905945425250173033141574241_r1i0ek.png',
-                     '99846027070905945425250173033141574241_r1i0em.png',
-                     '9985441410843219233283392583438926648_yd9nnr.png',
-                     '99856744558733960186100146988515134704_7ah98w.png',
-                     '99856744558733960186100146988515134704_j41xjm.png',
-                     '99892007883590670741722261257582487413_1oo6g9.png',
-                     '99901580345273320160032314107286962521_ku25je.png',
-                     '99901580345273320160032314107286962521_mqbbig.png',
-                     '99902406960705815671548533715810073618_wu5ixe.png',
-                     '99910083627741838065735299152000674832_ma4b5z.png',
-                     '99910083627741838065735299152000674832_nqrjxw.png',
-                     '99917243543351018409698730282530617147_5cj8jm.png',
-                     '99917243543351018409698730282530617147_6f0xsd.png',
-                     '9992487839101151026510218029061401063_xwb6x2.png',
-                     '9992487839101151026510218029061401063_xwb6x4.png',
-                     '99927028802994944546151436477164464059_ihb0dm.png']
+    front_studies = front_studies.sample(n = n_sample,random_state=3)
     concatenated_img = np.full((400, 400,1), 0) #remove
-    #for path in front_studies['ImagePath']:
-    for path in front_studies: #change
-        #path = '/image_dir_processed/241024778843643004390367414464471495529_me2shq.png'
-        path = root + '/SJ/image_dir_processed/' + path #change
+    for path in front_studies['ImagePath']:
+        path = root + '/SJ' + path #change
         img = img_as_float(io.imread(path))
         img = transform.resize(img, (400,400))
         img = np.expand_dims(img, -1)
@@ -556,9 +574,11 @@ def generateMeanXRay(sample = 100):
 
     #calculate mean
     mean = np.uint8(np.mean(concatenated_img, axis=2))
-    io.imsave('graphs/MeanImage.png',mean)
+    img = exposure.equalize_hist(mean)
+    io.imsave('graphs/MeanImage.png',img)
     std = np.uint8(np.std(concatenated_img, axis=2))
-    io.imsave('graphs/StdImage.png',std)
+    img = exposure.equalize_hist(std)
+    io.imsave('graphs/StdImage.png',img)
 
     return
 
@@ -594,7 +614,7 @@ def generateExcludedImageList():
     images['ReasonToExclude'] = 'ProtocolName'
     exclude= exclude.append(images)
 
-    #By Photometric Interpretation: exclude
+    #By Photometric Interpretation: exclude. Reason: many of them are DICOM annotation error, so this is necessary to reliable identify them to invert them in the preprocesing
     photometric_interpretation = ['MONOCHROME1']
     images = all_studies_DF[all_studies_DF['PhotometricInterpretation'].isin(photometric_interpretation)]
     images['ReasonToExclude'] = 'MONOCHROME1'
@@ -609,10 +629,17 @@ def generateExcludedImageList():
     f.write(nr)
     f.close()
 
+    #Images that have failed to be preprocesses and are not in image_dir_preprocessed
+    #i = all_studies_DF.ImagePath.apply(lambda x :  not os.path.exists(root + '/SJ' + x))
+    images = all_studies_DF[ all_studies_DF.ImagePath.apply(lambda x :  not os.path.exists(root + '/SJ' + x))]
+    images.to_csv("Not_processed_images.csv")
+    images['ReasonToExclude'] = 'ImageNotProcessed'
+    exclude= exclude.append(images)
 
     exclude.to_csv("Excluded_images_redundant.csv")
     exclude.groupby('ImagePath').first().to_csv("Excluded_images.csv")
     return exclude
+
 
 
 def preprocess_images( study_ids = None):
@@ -671,7 +698,105 @@ def preprocess_images( study_ids = None):
             except:
                 print ("Unexpected error:", sys.exc_info())
 
+#Temporal method: generate a new file ("all_info_studies_st_file") where each row from of all_info_study file is splitted in different rows (one for each sentence) adding the unsupervised label topic generated with para2vec ("source_topic_file")
+def saveAllStudyTopicsFullDataset(save_file = all_info_studies_st_file, source_topic_file = None, study_file = all_info_studies_file):
+    topics = '/sentence_clusters_100.csv' if not source_topic_file else source_topic_file
+    path = root + '/Rx-thorax-automatic-captioning' + topics
+    sent_topics = pd.read_csv(path, sep = ',',  header = 0, names =['key','class', 'ReportID','text'] )
 
+    path = root + '/Rx-thorax-automatic-captioning' + study_file
+    all_studies_DF = pd.read_csv(path, sep = ';' , header = 0)
+
+    all_studies_DF.ReportID = all_studies_DF.ReportID.astype(str)
+    sent_topics.ReportID = sent_topics.ReportID.astype(str)
+    sent_topics['class'] = sent_topics['class'].astype(str)
+
+    merge = pd.merge( all_studies_DF, sent_topics, how='left', on= 'ReportID')
+    merge.to_csv(save_file)
+
+#Temporal method: generate file for manual review of topics (review_sent_topic_#) where each row is a sentence with its  unsupervised topic and the count of occurences
+#The total number of rows # is limited to first 1000 more frequent sentences
+#The generated file is ready for manual review of topics in order to help add manually reviewed labels
+def extract_sent_topics(save_file = extract_topics_file , source_topic_file = None ):
+    topics = '/sentence_clusters.csv' if not source_topic_file else source_topic_file
+    path = root + '/Rx-thorax-automatic-captioning' + topics
+    sent_topics = pd.read_csv(path, sep = ',',  header = 0, names =['key','topic', 'ReportID','text'] )
+
+    #unique sentences
+    sent_topics.text  =  sent_topics.text.astype(str)
+    unique_sentences = sent_topics.text.value_counts()
+    print(unique_sentences.head())
+    table = sent_topics.groupby(['text','topic'], as_index=False)
+    df = pd.DataFrame(table.size(), columns = ['counts'])
+    manual_review_sent_topic_1000 = df.sort_values(by = ['counts'], ascending = False)[:1000]
+    manual_review_sent_topic_1000.to_csv('manual_review/review_sent_topic_1000.csv')
+
+#Temporal method: generate file for manual review of topics (review_sent_topic_pending) where each row is a sentence with its  unsupervised topic and the count of occurences
+#The total number of rows # is limited to sentences still not labeled (i.e those sentences in all_info_studies_st_file not labeled)
+#The generated file is ready for manual review of topics
+def pending_sent_labels(source_label_file = None):
+    topics = '/manual_review/reviewed_sent_topic.csv' if not source_label_file else source_label_file
+    path = root + '/Rx-thorax-automatic-captioning' + topics
+    sent_labels = pd.read_csv(path, sep = ';',  header = 0 )
+    sent_labels['labels']  = np.where(sent_labels['Unnamed: 4'].isnull(),sent_labels['Unnamed: 3'] ,sent_labels['Unnamed: 3'] + ',' +  sent_labels['Unnamed: 4'])
+
+    all_labels = pd.Series([label for sent in sent_labels['labels'] for label in str(sent).split(',') ])
+    all_labels.value_counts().sort_index().to_csv('manual_review/unique_labels.csv')
+
+    path = root + '/Rx-thorax-automatic-captioning/' + all_info_studies_st_file
+    all_studies_DF = pd.read_csv(path, sep = ',' , header = 0)
+    merge = pd.merge( all_studies_DF, sent_labels, how='left', on= 'text')
+    table = merge[merge['Unnamed: 3'].isnull()]
+    table.text  =  table.text.astype(str)
+    table = table.groupby(['text','class'], as_index=False)
+    df = pd.DataFrame(table.size(), columns = ['counts'])
+    df.to_csv('manual_review/review_sent_topic_100_pending.csv')
+
+
+    print(merge.describe())
+
+def merge_labeled_files():
+    most_frequent_labeled_sentences = '/manual_review/reviewed_sent_topic_1000.csv'
+    remaining_labeled_sentences = '/manual_review/reviewed_sent_topic_imgdataset.csv'
+    path = root + '/Rx-thorax-automatic-captioning'
+    sent_labels_mf = pd.read_csv(path + most_frequent_labeled_sentences, sep = ',',  header = 0 )
+    sent_labels_rem = pd.read_csv(path + remaining_labeled_sentences, sep = ',',  header = 0 )
+    sent_labels_rem.rename(columns={'class': 'topic'}, inplace=True)
+    sent_labels = pd.concat([sent_labels_mf,sent_labels_rem], axis=0, ignore_index=True)
+    sent_labels.rename(columns={'Unnamed: 3': '1','Unnamed: 4': '2','Unnamed: 5': '3','Unnamed: 6': '4','Unnamed: 7': '5','Unnamed: 8': '6', 'Unnamed: 9': '7','Unnamed: 10': '8','Unnamed: 11': '9'}, inplace=True)
+    print(sent_labels.sample(5))
+    column_names = ['text','topic', 'counts']
+    column_names.extend(list('123456789'))
+    sent_labels = sent_labels[column_names]
+    sent_labels.to_csv('manual_review/labeled_sent_28K.csv')
+
+    #count different labels
+    labels = sent_labels[list('123456789')]
+    s = labels.apply(pd.Series.value_counts)
+    a = s.sum(axis = 1).sort_values(ascending=False)
+    a.to_csv('manual_review/unique_labels_28K.csv')
+
+#Temporal method: add to file ("all_info_studies_st_file") where each row from of all_info_study file is splitted in different rows (one for each sentence) the manually labels  ("source_label_file")
+def saveAllStudyLabelsFullDataset(save_file = all_info_studies_st_file, source_label_file = None, study_file = all_info_studies_file):
+    path = root + '/Rx-thorax-automatic-captioning/' + all_info_studies_st_file
+    all_studies_DF = pd.read_csv(path, sep = ',' , header = 0)
+
+    sent_labels = '/manual_review/labeled_sent_28K.csv' if not source_label_file else source_label_file
+    path = root + '/Rx-thorax-automatic-captioning' + sent_labels
+    column_names = ['text','topic', 'counts']
+    column_names.extend(list('123456789'))
+
+    sent_labels = pd.read_csv(path, sep = ',',  header = 0, names =column_names )
+    merge = pd.merge( all_studies_DF, sent_labels, how='left', on= 'text')
+    merge.to_csv('manual_review/test.csv')
+
+
+    new = pd.DataFrame({'ImagePath':list(merge.groupby(['ImagePath']).groups.keys())})
+    groups = merge.groupby(['ImagePath'])
+    new['labels'] = merge['ImagePath'].apply(lambda x: pd.unique(groups.get_group(x)[list('123456789')].values.ravel('K')))
+    new.to_csv('manual_review/test_labels.csv')
+saveAllStudyLabelsFullDataset()
+#merge_labeled_files()
 
 
 if ID_XNAT is not None:
@@ -690,6 +815,9 @@ if patient_ID is not None:
 
 if filename is not None:
     saveAllStudyInfoFullDataset(filename)
+
+if filename_st is not None:
+    saveAllStudyTopicsFullDataset(filename_st, None)
 
 if filename_to_describe is not None:
     summarizeAllStudies()
@@ -730,3 +858,6 @@ if imgs_ID_XNAT is not None:
 
 if sample_image is not None:
     generateMeanXRay(sample_image)
+
+if extract_topics is not None:
+    extract_sent_topics(extract_topics_file, None)
