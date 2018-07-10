@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from ignite.engine import Events, create_supervised_trainer, create_supervised_evaluator
 from ignite.metrics import CategoricalAccuracy, Loss
 from sklearn.metrics import f1_score, accuracy_score
+from sklearn.externals import joblib
 
 
 from ignite.metrics.metric import Metric
@@ -27,12 +28,15 @@ os.chdir(currentroot)
 
 
 
+
 def string2numeric_hash(text):
     return int(hashlib.md5(text.encode('utf-8')).hexdigest()[:8], 16)
 
 def load_data():
+
     train = []
     labels = []
+    texts = []
     sent_labels = '/manual_review/labeled_sent_28K.csv'
     path = root + '/Rx-thorax-automatic-captioning' + sent_labels
     column_names = ['text','topic', 'counts']
@@ -45,9 +49,9 @@ def load_data():
     sent_labels['labels_set'] = sent_labels[list('123456789')].apply(lambda x: labels2set(x), axis=1)
 
     mlb = MultiLabelBinarizer()
-    labels = np.array(mlb.fit_transform(sent_labels['labels_set'].values))
-    print(mlb.classes_)
-    np.save('labels',labels)
+    fitted_mlb = mlb.fit(sent_labels['labels_set'].values)
+    joblib.dump(mlb, 'mlb.pkl')
+
 
     from fastText import load_model
 
@@ -55,8 +59,20 @@ def load_data():
     f = load_model(path)
     words, frequency = f.get_words(include_freq=True)
 
-    for s in sent_labels['text'].values:
-        train.append([f.get_word_vector(w) for w in str(s).split(' ') if not pd.isna(s)  ])
+
+    for idx,row in sent_labels.iterrows():
+        s = sent_labels.ix[idx,'text']
+        l = sent_labels.ix[idx,'labels_set']
+        if not pd.isna(s):
+            train.append([f.get_word_vector(w) for w in str(s).split(' ') ])
+            texts.append([s,l])
+            t = fitted_mlb.transform(np.array([l]))
+            labels.append(t[0])
+            #print(l)
+            #print(fitted_mlb.inverse_transform(t))
+
+
+    
 
     de = 100 # dimension word embedding
     b = np.zeros([len(train),len(max(train,key = lambda x: len(x))), de])
@@ -65,14 +81,17 @@ def load_data():
             b[i][0:len(j)] = np.array(j)
         else:
             b[i][0:len(j)] = np.zeros([1,de])
+
     np.save('train',b)
+    np.save ('text', texts)
+    np.save('labels',labels)
 
 
     #labels = [pattern.sub('', item.strip()) for sublist in labels for item in sublist if not pd.isna(item)]
     #labels = set(labels)
     #idx2labels = {string2numeric_hash(l): l for l in labels}
 
-    return train, labels
+    return train, labels, texts
 #load_data()
 
 
@@ -86,9 +105,10 @@ class Sent_Dataset(Dataset):
         self.transforms = transforms
         data = np.load('train.npy')
         data = np.transpose(data, [0,2,1])
-        #data = data[:,None,:, :]
         self.data_array = data
         self.labels_array = np.load('labels.npy')
+        self.texts_array = np.load('text.npy')
+        self.mlb = joblib.load('mlb.pkl')
 
     def __getitem__(self, index):
 
@@ -101,7 +121,7 @@ class Sent_Dataset(Dataset):
             data = self.transforms(data)
         # If the transform variable is not empty
         # then it applies the operations in the transforms with the order that it is created.
-        return data, label
+        return (index, data), label
 
     def __len__(self):
         return len(self.data_array)
@@ -125,6 +145,7 @@ class _classifier(nn.Module):
         self.fc1 = nn.Linear(64*58, nlabel)
 
     def forward(self, input):
+        input = input[1]
         x = F.relu(self.conv1(input))
         x = x.view(x.shape[0], -1)
         x = self.fc1(x)
@@ -183,7 +204,8 @@ evaluator = create_supervised_evaluator(classifier, metrics= {'accuracy': Multil
 
 
 print(device)
-log_interval = 1
+log_interval = 10
+log_view_interval = 10
 epochs = 10
 validate_every = 100
 checkpoint_every = 100
@@ -193,6 +215,24 @@ def log_training_loss(engine):
     if iter % log_interval == 0:
         print("Epoch[{}] Iteration[{}/{}] Loss: {:.7f}"
               "".format(engine.state.epoch, iter, len(train_loader), engine.state.output))
+
+@trainer.on(Events.ITERATION_COMPLETED)
+def log_training_view(engine):
+    iter = (engine.state.iteration - 1) % len(train_loader) + 1
+    if iter % log_view_interval == 0:
+        #for idx in engine.state.batch[0][0]:
+        #    print(sent_dataset.texts_array[idx])
+        #    print(sent_dataset.mlb.inverse_transform(np.array([sent_dataset.labels_array[idx]])))
+        y_pred = torch.sigmoid(engine.state.y_pred).data > 0.5
+        y = engine.state.y.view(engine.state.y.shape[0],-1)
+        yl_pred = sent_dataset.mlb.inverse_transform(y_pred.cpu().detach().numpy())
+        yl = sent_dataset.mlb.inverse_transform(y.cpu().detach().numpy())
+        z = list(zip(yl,yl_pred))
+        print("ground_truth,predicted")
+        print(z)
+
+            #print("Epoch[{}] Iteration[{}/{}] Loss: {:.7f}"
+            #  "".format(engine.state.epoch, iter, len(train_loader.batch_sampler), engine.state.output))
 
 @trainer.on(Events.EPOCH_COMPLETED)
 def log_training_results(engine):
@@ -211,6 +251,21 @@ def log_validation_results(engine):
     avg_nll = metrics['nll']
     print("Validation Results - Epoch: {}  Avg accuracy: {} Avg loss: {:.7f}"
           .format(engine.state.epoch, avg_accuracy, avg_nll))
+
+@trainer.on(Events.EPOCH_COMPLETED)
+def log_validation_view(engine):
+    evaluator.run(valid_loader)
+    y_pred, y = evaluator.state.output
+    y_pred = torch.sigmoid(y_pred).data > 0.5
+    y = y.view(y.shape[0],-1)
+    yl_pred = sent_dataset.mlb.inverse_transform(y_pred.cpu().detach().numpy())
+    yl = sent_dataset.mlb.inverse_transform(y.cpu().detach().numpy())
+    yt = np.take(sent_dataset.texts_array[:,0],evaluator.state.batch[0][0])
+
+    z = list(zip(yt,yl,yl_pred))
+    print("VALIDATION: text, ground_truth, predicted")
+    for i in z:
+        print(i)
 
 
 trainer.run(train_loader, max_epochs=epochs)
