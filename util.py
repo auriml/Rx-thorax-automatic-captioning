@@ -13,8 +13,18 @@ import os
 import requests, zipfile
 import pandas as pd
 import matplotlib.pyplot as plt
+import re
+import yaml
+from anytree import AnyNode
+from anytree.exporter import DictExporter
+from anytree.importer import DictImporter
+from pprint import pprint  # just for nice printing
+from anytree import RenderTree , search # just for nice printing
+import remotedebugger as rd
+
 
 parser = argparse.ArgumentParser(description='Util methods')
+rd.attachDebugger(parser)
 parser.add_argument('-s', metavar='MR_ID_XNAT', type=str, nargs=1,
                     help='display DICOM info for all images of a study identified with MR ID XNAT')
 parser.add_argument('-ps', metavar='MR_ID_XNAT', type=str, nargs=1,
@@ -50,6 +60,7 @@ parser.add_argument('-fst',  metavar='filename', type=str, nargs='?', default= T
                     help='save in filename all info for all studies by sentence topic. Default filename: /all_info_studies_sent_topics.csv  ')
 parser.add_argument('-est',  metavar='filename', type=str, nargs='?', default= True,
                     help='extract and save in filename sentence topics. Default filename: /extract_sent_topics.csv  ')
+
 
 
 #parser.add_argument('u', metavar='username', type=str, nargs=1,
@@ -698,7 +709,7 @@ def preprocess_images( study_ids = None):
             except:
                 print ("Unexpected error:", sys.exc_info())
 
-#Temporal method: generate a new file ("all_info_studies_st_file") where each row from of all_info_study file is splitted in different rows (one for each sentence) adding the unsupervised label topic generated with para2vec ("source_topic_file")
+#Temporal method: generate a new file ("all_info_studies_st_file") where each row from all_info_study file is splitted in different rows (one for each sentence) adding the unsupervised label topic generated with para2vec ("source_topic_file")
 def saveAllStudyTopicsFullDataset(save_file = all_info_studies_st_file, source_topic_file = None, study_file = all_info_studies_file):
     topics = '/sentence_clusters_100.csv' if not source_topic_file else source_topic_file
     path = root + '/Rx-thorax-automatic-captioning' + topics
@@ -770,33 +781,164 @@ def merge_labeled_files():
     sent_labels = sent_labels[column_names]
     sent_labels.to_csv('manual_review/labeled_sent_28K.csv')
 
-    #count different labels
-    labels = sent_labels[list('123456789')]
-    s = labels.apply(pd.Series.value_counts)
-    a = s.sum(axis = 1).sort_values(ascending=False)
-    a.to_csv('manual_review/unique_labels_28K.csv')
 
-#Temporal method: add to file ("all_info_studies_st_file") where each row from of all_info_study file is splitted in different rows (one for each sentence) the manually labels  ("source_label_file")
-def saveAllStudyLabelsFullDataset(save_file = all_info_studies_st_file, source_label_file = None, study_file = all_info_studies_file):
+
+
+#Temporal method: add to all info study file ("all_info_studies_file") the manual labels  ("source_label_file" e.g. labeled_sent_28K.csv)
+def saveAllStudyLabelsFullDataset(source_label_file = None):
+
     path = root + '/Rx-thorax-automatic-captioning/' + all_info_studies_st_file
-    all_studies_DF = pd.read_csv(path, sep = ',' , header = 0)
+    all_studies_st_DF = pd.read_csv(path, sep = ',' , header = 0)
 
     sent_labels = '/manual_review/labeled_sent_28K.csv' if not source_label_file else source_label_file
     path = root + '/Rx-thorax-automatic-captioning' + sent_labels
     column_names = ['text','topic', 'counts']
     column_names.extend(list('123456789'))
-
     sent_labels = pd.read_csv(path, sep = ',',  header = 0, names =column_names )
-    merge = pd.merge( all_studies_DF, sent_labels, how='left', on= 'text')
+
+    #add localization: To each sentence row in sent_labels add a new column named 0 with the localization info based on regex rules
+    local_regex  = '/manual_review/localization_regex.csv'
+    path = root + '/Rx-thorax-automatic-captioning' + local_regex
+    local_regex = pd.read_csv(path, sep = ',',  header = 0, names= ['regex','lab'], dtype= {'lab': str} )
+    def extract_matches(x):
+        local_regex['matches'] = local_regex['regex'].apply(lambda pattern: ', '.join(re.findall(pattern, str(x))))
+        m = ['loc ' + i for i in local_regex[local_regex['matches'] != '']['lab'].values]
+        return m
+    sent_labels['0'] = sent_labels['text'].apply(lambda x: extract_matches(x))
+    # remove redundant localizations
+    def remove_redundant(x):
+        redundants = []
+        for i in x:
+            for j in x:
+                if j != i and j  in i:
+                    redundants.append(j)
+        result = list(set(x) - set(redundants))
+        return result
+    sent_labels['0'] = sent_labels['0'].apply(lambda x: ','.join(remove_redundant(x)))
+    sent_labels['label_and_local'] = sent_labels[list('1234567890')].apply(lambda x: ''.join(str(x.values )) , axis = 1)
+
+    merge = pd.merge( all_studies_st_DF, sent_labels, how='left', on= 'text')
     merge.to_csv('manual_review/test.csv')
 
 
-    new = pd.DataFrame({'ImagePath':list(merge.groupby(['ImagePath']).groups.keys())})
+    path = root + '/Rx-thorax-automatic-captioning/' + all_info_studies_file
+    all_studies_DF = pd.read_csv(path, sep = ';' , header = 0)
+
     groups = merge.groupby(['ImagePath'])
-    new['labels'] = merge['ImagePath'].apply(lambda x: pd.unique(groups.get_group(x)[list('123456789')].values.ravel('K')))
-    new.to_csv('manual_review/test_labels.csv')
+    def unique_labels(x):
+        l = pd.unique(groups.get_group(x)[list('123456789')].values.ravel('K'))
+        li = [x for x in l if pd.isnull(x) == False ]
+        if len(li)>1 and 'normal' in li: #remove label 'normal' from studies with multiple labels
+            if not (len(li)==2 and 'exclude' in li): #exception: keep normal if the only remaining label is exclude
+                li.remove('normal')
+        return li
+
+
+    all_studies_DF['labels'] = all_studies_DF['ImagePath'].apply(lambda x:unique_labels(x) )
+
+    def unique_by_group_and_column(x, column):
+        l = pd.unique(groups.get_group(x)[[column]].values.ravel('K'))
+        li = [x for x in l if x and pd.isnull(x) == False  ]
+        return li
+
+    all_studies_DF['localizations'] = all_studies_DF['ImagePath'].apply(lambda x:unique_by_group_and_column(x, '0') ) #Column 0 corresponds to the list of localizations by sentence
+    all_studies_DF['study_label_and_local'] = all_studies_DF['ImagePath'].apply(lambda x:unique_by_group_and_column(x, 'label_and_local') )
+    p = re.compile(r'[a-zA-Z\s\-]+')
+
+    all_studies_DF['study_label_and_local'] = all_studies_DF['study_label_and_local'].apply(lambda x: [l.strip() for l in re.findall(p,str(x)) if l.strip() and 'nan' not in l and l.strip() != 'n' ])
+
+    all_studies_DF.to_csv('manual_review/all_info_studies_labels.csv')
+
+def summarizeAllStudiesLabel(all_info_studies_labels=None):
+    study_labels_file = 'manual_review/all_info_studies_labels.csv' if not all_info_studies_labels else all_info_studies_labels
+
+    path = root + '/Rx-thorax-automatic-captioning/' + study_labels_file
+    all_studies_labels_DF = pd.read_csv(path, sep = ',' , header = 0)
+    #count by study not by image (PA and Lateral image views share the same reports and therefore the same labels)
+    row_labels = all_studies_labels_DF.groupby('StudyID').head(1)
+    #count different labels
+    labels = row_labels['labels'].astype('str')
+    pattern = re.compile('[^a-zA-Z,\s\-]+')
+    labels = [item.strip() for sublist in labels for item in pattern.sub('', sublist).split(",")]
+    a = pd.Series(labels).value_counts()
+    a.to_csv('manual_review/unique_labels_28K.csv')
+    #count different localizations
+    labels = row_labels['localizations'].astype('str')
+    pattern = re.compile('[^a-zA-Z,\s\-]+')
+    labels = [re.compile('loc\s+').sub('',item.strip()) for sublist in labels for item in pattern.sub('', sublist).split(",")]
+    a = pd.Series(labels).value_counts()
+    a.to_csv('manual_review/unique_localizations_28K.csv')
+
+
+    return
+
+def buildTreeCounts( ):
+    stream = open("manual_review/trees.txt", "r")
+    docs = yaml.load_all(stream)
+
+    study_labels_file = 'manual_review/all_info_studies_labels.csv'
+    path = root + '/Rx-thorax-automatic-captioning/' + study_labels_file
+    all_studies_labels_DF = pd.read_csv(path, sep = ',' , header = 0)
+
+    row_labels = all_studies_labels_DF.groupby('StudyID').head(1)
+    row_labels['labels'] = row_labels['labels'].astype('str')
+    pattern = re.compile('[^a-zA-Z,\s]+')
+    row_labels['label_list'] = row_labels['labels'].apply(lambda r: set([item.strip() for item in pattern.sub('', r).split(",")]))
+
+
+    study_localizations_count = 'manual_review/unique_localizations_28K.csv'
+    study_labels_count = 'manual_review/unique_labels_28K.csv'
+    path = root + '/Rx-thorax-automatic-captioning/' + study_labels_count
+    study_labels_count_DF = pd.read_csv(path, sep = ',' ,names = ['label','counts'], dtype={'label': str, 'counts': np.int32})
+    path = root + '/Rx-thorax-automatic-captioning/' + study_localizations_count
+    study_localizations_count_DF = pd.read_csv(path, sep = ',' ,names = ['label','counts'], dtype={'label': str, 'counts': np.int32})
+    study_labels_count_DF = pd.concat([study_labels_count_DF,study_localizations_count_DF], axis = 0)
+
+    for doc in docs:
+        tree_root = DictImporter().import_(doc)
+
+        for pre, _, node in RenderTree(tree_root):
+            try:
+                if node.label == 'normal': #Normal if single label (studies with reports without pathological findings: [Normal + exclude], [Normal],  [Normal + Suboptimal]
+                    s = {'normal','exclude','suboptimal study'}
+                    node.study_counts = row_labels[row_labels['label_list'] <= s].shape[0]
+                elif  node.label == 'exclude': #Exclude if single label (reports not informative, neither normal not pathological finding reported): [Exclude], [Exclude, suboptimal]
+                    s = {'exclude','suboptimal study'}
+                    node.study_counts = row_labels[row_labels['label_list'] <= s].shape[0]
+                else:
+                    node.study_counts = study_labels_count_DF.loc[study_labels_count_DF.label == node.label,'counts'].values[0]
+
+            except:
+                node.study_counts = 0
+
+        with open("manual_review/tree_term_counts.txt", "a") as text_file:
+            for pre, _, node in RenderTree(tree_root):
+                node.study_node_counts = node.study_counts + sum(i.study_counts for i in node.descendants)
+                print("%s%s %s" % (pre, node.label, node.study_node_counts), file=text_file)
+
+        #with open("manual_review/tree_term_counts.txt", "a") as text_file:
+            #print(RenderTree(tree_root), file=text_file)
+
+
+        #labels (pathological findings) associated to differential diagnoses
+        #load differential diagnosis subtree
+        #for each diagnosis collect all other pathological findings in all_info_study_labels
+        if tree_root.label == "differential diagnosis":
+            for n in tree_root.descendants:
+                n.ordered_near_labels = pd.Series([l for sublist in row_labels[row_labels['label_list'] >= {n.label}]['label_list'] for l in sublist ]).value_counts()
+
+            #with open("manual_review/tree_term_counts.txt", "a") as text_file:
+                #print(RenderTree(tree_root), file=text_file)
+    return
+
+
+
+merge_labeled_files()
 saveAllStudyLabelsFullDataset()
-#merge_labeled_files()
+summarizeAllStudiesLabel()
+buildTreeCounts()
+
+
 
 
 if ID_XNAT is not None:
