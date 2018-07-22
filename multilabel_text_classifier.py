@@ -20,6 +20,10 @@ from sklearn.externals import joblib
 
 from ignite.metrics.metric import Metric
 from ignite.exceptions import NotComputableError
+import argparse
+import remotedebugger as rd
+parser = argparse.ArgumentParser()
+rd.attachDebugger(parser)
 
 currentroot = os.getcwd()
 os.chdir("../")
@@ -27,16 +31,17 @@ root = os.getcwd()
 os.chdir(currentroot)
 
 
-
+de = 100 # dimension word embedding
 
 def string2numeric_hash(text):
     return int(hashlib.md5(text.encode('utf-8')).hexdigest()[:8], 16)
 
-def load_data():
+def load_data(de):
 
     train = []
     labels = []
     texts = []
+    seq_lengths = []
     sent_labels = '/manual_review/labeled_sent_28K.csv'
     path = root + '/Rx-thorax-automatic-captioning' + sent_labels
     column_names = ['text','topic', 'counts']
@@ -74,16 +79,19 @@ def load_data():
 
     
 
-    de = 100 # dimension word embedding
+    
     b = np.zeros([len(train),len(max(train,key = lambda x: len(x))), de])
     for i,j in enumerate(train):
         if len(j) > 0:
             b[i][0:len(j)] = np.array(j)
+            seq_lengths.append(len(j))
         else:
             b[i][0:len(j)] = np.zeros([1,de])
+            seq_lengths.append(0)
 
+    np.save('seq_lengths',seq_lengths)
     np.save('train',b)
-    np.save ('text', texts)
+    np.save('text', texts)
     np.save('labels',labels)
 
 
@@ -92,19 +100,23 @@ def load_data():
     #idx2labels = {string2numeric_hash(l): l for l in labels}
 
     return train, labels, texts
-#load_data()
+#load_data(de)
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Sent_Dataset(Dataset):
-    def __init__(self, transforms=None):
+    def __init__(self, transforms=None, CNN_format=False):
         # stuff
         ...
         self.transforms = transforms
         data = np.load('train.npy')
-        data = np.transpose(data, [0,2,1])
+        if CNN_format:
+            data = np.transpose(data, [0,2,1])
+        else:
+            pass
+        self.seq_lenghts_array = np.load('seq_lengths.npy')
         self.data_array = data
         self.labels_array = np.load('labels.npy')
         self.texts_array = np.load('text.npy')
@@ -116,21 +128,45 @@ class Sent_Dataset(Dataset):
         data = torch.FloatTensor(data, device = device)
         label = self.labels_array[index]
         label = torch.FloatTensor(label, device = device).view(1, -1)
+        length = self.seq_lenghts_array[index]
+        
 
         if self.transforms is not None:
             data = self.transforms(data)
         # If the transform variable is not empty
         # then it applies the operations in the transforms with the order that it is created.
-        return (index, data), label
+        return ((index, data, length), label)
 
     def __len__(self):
         return len(self.data_array)
 
-batch_size = 100
-sent_dataset =  Sent_Dataset()
+class BatchSamplerOrdered(BatchSampler):
+    def __iter__(self):
+            batch = []
+            lengths = []
+            for idx in self.sampler:
+                batch.append(int(idx))
+                lengths.append(sent_dataset.seq_lenghts_array[idx])
+                if len(batch) == self.batch_size:
+                    merge = list(zip(batch,lengths))
+                    merge.sort(key=lambda tup: tup[1])
+                    batch, _ = zip(*merge[::-1])
+                    yield list(batch)
+                    #yield batch
+                    batch = []
+                    lengths = []
+            if len(batch) > 0 and not self.drop_last:
+                merge = list(zip(batch,lengths))
+                merge.sort(key=lambda tup: tup[1])
+                batch, _ = zip(*merge[::-1])
+                yield list(batch)
+                #yield batch
+
+batch_size = 1024
+sent_dataset =  Sent_Dataset(CNN_format=False)
 idx_train, idx_valid = train_test_split(range(sent_dataset.__len__()), test_size=0.1, random_state=42)
-train_sampler = BatchSampler(SubsetRandomSampler(idx_train[:]), batch_size, False)
-valid_sampler = BatchSampler(SubsetRandomSampler(idx_valid[:]), batch_size, False)
+train_sampler = BatchSamplerOrdered(SubsetRandomSampler(idx_train[:]), batch_size, False)
+valid_sampler = BatchSamplerOrdered(SubsetRandomSampler(idx_valid[:]), batch_size, False)
 
 train_loader = DataLoader(sent_dataset, batch_sampler=train_sampler, shuffle=False, num_workers=4,
                           pin_memory=True if torch.cuda.is_available() else False)
@@ -139,9 +175,9 @@ valid_loader = DataLoader(sent_dataset, batch_sampler=valid_sampler, shuffle=Fal
 
 
 class _classifier(nn.Module):
-    def __init__(self, nlabel):
+    def __init__(self, nlabel, de):
         super(_classifier, self).__init__()
-        self.conv1 = nn.Conv1d(100, 64, 3, padding=2)
+        self.conv1 = nn.Conv1d(de, 64, 3, padding=2)
         self.fc1 = nn.Linear(64*58, nlabel)
 
     def forward(self, input):
@@ -152,7 +188,60 @@ class _classifier(nn.Module):
         return x
 
 
+class _classifierCNN(nn.Module):
+    def __init__(self, nlabel, de):
+        super(_classifierCNN, self).__init__()
+        self.conv1 = nn.Conv1d(de, 64, 3, padding=2)
+        self.pooling = nn.MaxPool1d(kernel_size = 2)
+        self.conv2 = nn.Conv1d(64, 128, 3, padding=2)
+        self.fc1 = nn.Linear(128*31, nlabel)
 
+    def forward(self, input):
+        input = input[1]
+        x = F.relu(self.conv1(input))
+        x = self.pooling(x)
+        x = F.relu(self.conv2(x))
+        x = x.view(x.shape[0], -1)
+        x = self.fc1(x)
+        return x
+# Bidirectional recurrent neural network (many-to-one)
+class BiRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes):
+        super(BiRNN, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, dropout=0.5, batch_first=True, bidirectional=True)
+        self.fc = nn.Linear(hidden_size*1, num_classes)  # 2 for bidirection
+    
+    def forward(self, input):
+        # Set initial states
+        x = input[1]
+
+        if np.random.rand() < 0.00001:
+            print(x)
+        #sequences should be sorted by length in a decreasing order, i.e. input[:,0] should be the longest sequence, and input[:,B-1] the shortest one.
+        lengths = input[2]
+        x = nn.utils.rnn.pack_padded_sequence(x,lengths,batch_first=True)
+        #h0 = torch.zeros(self.num_layers*1, lengths[0], self.hidden_size).to(device) # 2 for bidirection 
+        #c0 = torch.zeros(self.num_layers*1, lengths[0], self.hidden_size).to(device)
+        
+        # Forward propagate LSTM
+        out,  (ht, ct) = self.lstm(x)  # out: tensor of shape (batch_size, seq_length, hidden_size*2)
+        
+        # Decode the hidden state of the last time step
+        #out, out_length = nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
+        #print(out.size())
+        #out = out[:,out_length-1,:]#[out[i, length-1, :] for i, length in enumerate(lengths)]
+        #print(out.size())
+        #out = out.view(out.shape[0], -1)
+        #print(out.size())
+        
+        #out = self.fc(out)
+        out = ht[-1]
+        out = F.dropout(out, p=0.5, training=self.training)
+        out = self.fc(out)   
+
+        return out
 
 
 class MultilabelCategoricalAccuracy(Metric):
@@ -179,6 +268,7 @@ class MultilabelCategoricalAccuracy(Metric):
 
         self._macro_accuracies.append(f1_score(y, y_pred, average='macro'))
         self._micro_accuracies.append(f1_score(y, y_pred, average='micro'))
+        self._micro_accuracies.append(f1_score(y, y_pred, average='weighted'))
         self._accuracies.append(accuracy_score(y, y_pred))
 
 
@@ -190,9 +280,13 @@ class MultilabelCategoricalAccuracy(Metric):
 
 
 nlabel = len(sent_dataset.labels_array[0])
-classifier = _classifier(nlabel)
+#classifier = _classifierCNN(nlabel,de)
+num_layers = 2
+hidden_size = 128
+input_size = de
+classifier = BiRNN(input_size, hidden_size, num_layers, nlabel).to(device)
 
-optimizer = optim.Adam(classifier.parameters())
+optimizer = optim.RMSprop(classifier.parameters())
 criterion = nn.MultiLabelSoftMarginLoss()
 
 
@@ -206,7 +300,7 @@ evaluator = create_supervised_evaluator(classifier, metrics= {'accuracy': Multil
 print(device)
 log_interval = 10
 log_view_interval = 10
-epochs = 10
+epochs = 100
 validate_every = 100
 checkpoint_every = 100
 @trainer.on(Events.ITERATION_COMPLETED)
@@ -228,8 +322,8 @@ def log_training_view(engine):
         yl_pred = sent_dataset.mlb.inverse_transform(y_pred.cpu().detach().numpy())
         yl = sent_dataset.mlb.inverse_transform(y.cpu().detach().numpy())
         z = list(zip(yl,yl_pred))
-        print("ground_truth,predicted")
-        print(z)
+        #print("ground_truth,predicted")
+        #print(z)
 
             #print("Epoch[{}] Iteration[{}/{}] Loss: {:.7f}"
             #  "".format(engine.state.epoch, iter, len(train_loader.batch_sampler), engine.state.output))
@@ -252,7 +346,7 @@ def log_validation_results(engine):
     print("Validation Results - Epoch: {}  Avg accuracy: {} Avg loss: {:.7f}"
           .format(engine.state.epoch, avg_accuracy, avg_nll))
 
-@trainer.on(Events.EPOCH_COMPLETED)
+#@trainer.on(Events.EPOCH_COMPLETED)
 def log_validation_view(engine):
     evaluator.run(valid_loader)
     y_pred, y = evaluator.state.output
@@ -267,20 +361,16 @@ def log_validation_view(engine):
     for i in z:
         print(i)
 
+@trainer.on(Events.EPOCH_COMPLETED)       
+def save_model(trainer, model):
+     out_path = "model_epoch_{}.pth".format(trainer.current_epoch)
+     torch.save(model.state_dict, out_path)
+
+#the_model = TheModelClass(*args, **kwargs)
+#the_model.load_state_dict(torch.load(PATH))
+#testor.add_event_handler(Events.COMPLETED, get_performance(logger)) model.load_state_dict(torch.load('../model/' + model_name))
+#testor.run(test_loader)
 
 trainer.run(train_loader, max_epochs=epochs)
 
 
-# for epoch in range(epochs):
-#     losses = []
-#     for i, inputv ,labelsv in enumerate(data_loader):
-#
-#         output = classifier(inputv)
-#         loss = criterion(output, labelsv)
-#
-#         optimizer.zero_grad()
-#         loss.backward()
-#         optimizer.step()
-#         losses.append(loss.data.mean())
-#
-#     print('[%d/%d] Loss: %.3f' % (epoch+1, epochs, np.mean(losses)))
