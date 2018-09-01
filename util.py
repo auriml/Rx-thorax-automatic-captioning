@@ -825,8 +825,10 @@ def saveAllStudyLabelsFullDataset(source_label_file = None):
     all_studies_DF = pd.read_csv(path, sep = ';' , header = 0)
 
     groups = merge.groupby(['ImagePath'])
-    def unique_labels(x):
-        l = pd.unique(groups.get_group(x)[list('123456789')].values.ravel('K'))
+    def unique_labels(x): 
+        serie = groups.get_group(x)[list('123456789')].values.ravel('K')
+        serie = [re.sub(r' right side| left side| both side.*| bilateral', '', x) for x in serie if pd.isnull(x) == False] #remove localizations that were manually added to labels
+        l = pd.unique(serie)
         li = [x for x in l if pd.isnull(x) == False ]
         if len(li)>1 and 'normal' in li: #remove label 'normal' from studies with multiple labels
             if not (len(li)==2 and 'exclude' in li): #exception: keep normal if the only remaining label is exclude
@@ -933,7 +935,7 @@ def buildTreeCounts( ):
 
 
 
-merge_labeled_files()
+#merge_labeled_files()
 saveAllStudyLabelsFullDataset()
 summarizeAllStudiesLabel()
 buildTreeCounts()
