@@ -86,7 +86,7 @@ There are two types of fields:
 - LabelCUIS and LocalizationsCUIS: These fields contains the [UMLS Metathesaurus CUIs] (https://uts.nlm.nih.gov/home.html) corresponding to extracted terms.
 
 Examples: 
-1. Text: "compar con estudi previ 2010 sin identific cambi signific . siluet cardiomediastin dentr limit normal . no identif imagen condensacion ni opac pulmonar entid signific " 
+1. Report: "compar con estudi previ 2010 sin identific cambi signific . siluet cardiomediastin dentr limit normal . no identif imagen condensacion ni opac pulmonar entid signific " 
 
    Labels: ['unchanged']
 
@@ -98,7 +98,7 @@ Examples:
    
    LocalizationsCUIS: ['C1522601']
 
-2. Text: "imagen pequen taman redond densid metal proyect torax hombre i relacion probabl con perdigon . compresion par lateral izquierd traque probabl estructur vascular . hipoventilacion bibasal ."
+2. Report: "imagen pequen taman redond densid metal proyect torax hombre i relacion probabl con perdigon . compresion par lateral izquierd traque probabl estructur vascular . hipoventilacion bibasal ."
 
    Labels: ['metal', 'superior mediastinal enlargement', 'hypoexpansion basal', 'abnormal foreign body', 'supra aortic elongation']
 
@@ -110,7 +110,7 @@ Examples:
    
    LocalizationsCUIS: ['C0040578' 'C0037004' 'C0443246']
 
-3. Text: "marcapas tricameral . cambi pulmonar cronic . no identific imagen sugest neumotorax . "
+3. Report: "marcapas tricameral . cambi pulmonar cronic . no identific imagen sugest neumotorax . "
 
    Labels: ['pacemaker', 'chronic changes']
 
