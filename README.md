@@ -104,7 +104,7 @@ Examples:
 
    Localizations: ['loc  shoulder', 'loc  tracheal, loc  left', 'loc  basal bilateral']
 
-   LabelsLocalizationsBySentence: [['metal', 'abnormal foreign body', 'loc shoulder'], ['superior mediastinal enlargement', 'supra aortic elongation', 'loc tracheal', 'loc left'], ['hypoexpansion basal both sides', 'loc basal bilateral'], ['hypoexpansion basal both sides', 'loc basal bilateral'], ['hypoexpansion basal both sides', 'loc basal bilateral']]
+   LabelsLocalizationsBySentence: [['metal', 'abnormal foreign body', 'loc shoulder'], ['superior mediastinal enlargement', 'supra aortic elongation', 'loc tracheal', 'loc left'], ['hypoexpansion basal both sides', 'loc basal bilateral']]
    
    LabelsCUIS: ['C0025552' 'C4273001' '' 'C0016542']
    
