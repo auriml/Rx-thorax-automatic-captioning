@@ -122,6 +122,7 @@ Examples:
    
    LocalizationsCUIS: []
 
+The labels are classified in three different treess: differential diagnosis, radiological findings and anatomical locations. Trees and term counts are available in tree_term_CUI_counts_160K.csv.
 
 ## Search Instructions for image retrieval by differential diagnosis, Rx findings and anatomical locations: 
 To retrieve all relevant images that contains the childs of one term of interest, please consult the appropriate tree and include in the search the corresponding child’s labels or CUIs for this term.
