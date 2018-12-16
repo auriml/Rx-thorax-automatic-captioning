@@ -8,7 +8,6 @@ import pydicom
 import re
 
 
-import os
 import pathlib
 
 import requests, zipfile
@@ -26,7 +25,7 @@ import remotedebugger as rd
 
 
 parser = argparse.ArgumentParser(description='Util methods')
-rd.attachDebugger(parser)
+#rd.attachDebugger(parser)
 parser.add_argument('-s', metavar='MR_ID_XNAT', type=str, nargs=1,
                     help='display DICOM info for all images of a study identified with MR ID XNAT')
 parser.add_argument('-ps', metavar='MR_ID_XNAT', type=str, nargs=1,
@@ -56,8 +55,8 @@ parser.add_argument('-e',action='store_true',
 parser.add_argument('-imgs', metavar='MR_ID_XNAT', type=str, nargs=1,
                     help='preprocess all images of a study identified with MR ID XNAT')
 
-parser.add_argument('-imgm', metavar='n_samples', type=int, nargs=1,
-                    help='generate mean X-Ray picture and mean standard deviation picture for n samples')
+parser.add_argument('-imgm', action='store_true',
+                    help='generate mean X-Ray picture and mean standard deviation picture for each position')
 parser.add_argument('-fst',  metavar='filename', type=str, nargs='?', default= True,
                     help='save in filename all info for all studies by sentence topic. Default filename: /all_info_studies_sent_topics.csv  ')
 parser.add_argument('-est',  metavar='filename', type=str, nargs='?', default= True,
@@ -87,7 +86,7 @@ numerical_field = args.dn if args.dn  else  None
 split_images_side_front = args.split if args.split  else  None
 exclude = args.e if args.e  else  None
 imgs_ID_XNAT = args.imgs[0] if args.imgs  else  None
-sample_image = args.imgm[0] if args.imgm  else  None
+image_mean = args.imgm if args.imgm  else  None
 extract_topics = extract_topics_file if args.est is None else None
 
 
@@ -360,115 +359,33 @@ def summarizeAllStudiesDicomModality():
     print(samples)
     return fieldValues, samples
 
-def splitImagesPositionView(fileSuffix = "_nonXNAT.csv"):
-    #possible values: _nonXNAT.csv, .csv
-    all_info_studies_file_prefix = "/all_info_studies" 
-    all_info_studies_file = all_info_studies_file_prefix + fileSuffix
-    all_studies_DF = pd.read_csv(root + '/Rx-thorax-automatic-captioning' + all_info_studies_file , sep = ';' , header = 0)
+def generatePositionsFileToReview():
+    dfa = pd.read_csv('all_info_studies_labels_160K.csv', header = 0)
+    dfs = pd.read_csv('SJ_chest_x_ray_images_labels_160K.csv', header = 0)
+    dfs['ImageID'] = dfs['ImageID'].astype(str)
 
-     #exclude non-evaluable images
-    if os.path.exists('Excluded_images' + fileSuffix):
-        excluded = pd.read_csv('Excluded_images' + fileSuffix, sep = ',' , header = 0)
-    else:
-        excluded = generateExcludedImageList(fileSuffix )
-    idx = all_studies_DF[all_studies_DF['ImagePath'].isin(excluded['ImagePath'])].index.values
-    print("Number of excluded images: " + str(len(idx)))
-    all_studies_DF = all_studies_DF.drop(idx)
+    dfa['ImageID'] = dfa['ImagePath'].str.split("/").str.get(-1)
+    dfa['ImageID'] = dfa['ImageID'].astype(str)
 
-    #Side view images
-    # where StudyDescription is in lat array (a manual selection from values of StudyDescription,_
-    # please run summarizeAllStudiesByCategory when new images are added to dataset to identify new values)
-    #lat = ["Lateral","Lateralizq", "LatVertical", "LatHorizontal", "Decblatizq"]
-    latVerLef = ["Lateral","Lateralizq", "LatVertical"] #vertical and left 
-    side_images_ver_lef = all_studies_DF[all_studies_DF['SeriesDescription'].isin(latVerLef)]
+    m = pd.merge(dfa,dfs,how='left', on='ImageID')
+    m = m[['Projection','ViewPosition','CodeMeaning','ProtocolName','SeriesDescription', 'ImageID']].astype(str)
+    c = m.groupby(['Projection','ViewPosition','ProtocolName','SeriesDescription','CodeMeaning']).ImageID.count()
+    c = pd.DataFrame(c)
+    c.to_csv('Positions.csv')
+    return 
 
-    # where ViewPosition is in lat array
-    #lat = ['LATERAL','LL','LLD','RL'] #LL and RL means right lateral view (all other are left lateral views)
-    latVerLef = ['LATERAL','LL','RL']
-    side_images_ver_lef = side_images_ver_lef.append(all_studies_DF[all_studies_DF['ViewPosition'].isin(latVerLef)])
-    #side_images_ver_lef = side_images_ver_lef.groupby('ImagePath').first()
-
-    latVerRig =  ['LLD'] #vertical and right
-    side_images_ver_rig = all_studies_DF[all_studies_DF['ViewPosition'].isin(latVerRig)]
-    latVerRig = ['LateralDecub','Lateralder']
-    side_images_ver_rig = side_images_ver_rig.append(all_studies_DF[all_studies_DF['SeriesDescription'].isin(latVerRig)])
-    #side_images_ver_rig = side_images_ver_rig.groupby('ImagePath').first()
-    #TODO: add those where image_dir path contain "lat" ? not a good method, is not exhaustive
-
-    #where Code Meaning is in
-    latVerLef = ['RXTORAXPAYLAT','RXTORAXPAYLATPED'] #Those are the studies with both frontal and side views, so to not add them but compare with prior figure
-    both = all_studies_DF[all_studies_DF['CodeMeaning'].isin(latVerLef)]
-    #uniqueBoth = both.groupby('ImagePath').first()
-    studies_to_review = both[~both['StudyID'].isin(side_images_ver_lef['StudyID'])]
-    
-    #side_images = side_images.append(all_studies_DF[all_studies_DF['CodeMeaning'].isin(lat)])
-    #side_images = side_images.groupby('ImagePath').first()
-    ped = ['RXTORAXPAYLATPED'] #pediatric and AP, supine or not
-    ped_images = all_studies_DF[all_studies_DF['CodeMeaning'].isin(ped)]
-    ped = ['PedTórax3yr']
-    ped_images = ped_images.append(all_studies_DF[all_studies_DF['ProtocolName'].isin(ped)])
-    #ped_images = ped_images.groupby('ImagePath').first()
-
-    #Front view images where StudyDescription is in front array (a manual selection from values of StudyDescription,
-    # please run summarizeAllStudiesByCategory when new images are added to dataset to identify new values)
-    #front = ["Trax","Tórax","PA", "PAhoriz","APhorizontal","PAvertical", "pulmon", "AP","torax","APhoriz", "APvertical",
-    #"Lordtica", "APHorizontal", "PAHorizontal","Pediatra3aos", "Pediatría3años","APVertical", "Pedit3aos",  "Pediát3años", "W033TraxPA"]
-    frontPA = ["Trax","Tórax","PA", "PAhoriz", "PAvertical", "pulmon","torax","PAHorizontal", "W033TraxPA"] #Note:"Torax" are mixed lateral and PA
-    #frontPA_images = all_studies_DF[all_studies_DF['SeriesDescription'].isin(frontPA)] #Evaluated and Not reliable
-    undetermined = ["Trax","Tórax","pulmon","torax"] #Note:"Torax" are mixed lateral and PA
-    undetermined_images = all_studies_DF[all_studies_DF['SeriesDescription'].isin(undetermined)]
-    studies_to_review = studies_to_review.append(undetermined_images)
-    studies_to_review = studies_to_review[~(studies_to_review.ViewPosition == 'PA')]
-    studies_to_review = studies_to_review[~(studies_to_review.ViewPosition == 'POSTEROANTERIOR')]
-    
-    
-    #Split into AP vertical  and horizontal 
-    frontAPhorizontal = ["APhorizontal","APhoriz","APHorizontal"]
-    frontAPhorizontal_images = all_studies_DF[all_studies_DF['SeriesDescription'].isin(frontAPhorizontal)]
-    #frontAPhorizontal_images = frontAPhorizontal_images.groupby('ImagePath').first()
-
-    frontAP = [ "AP",  "APvertical",  "Lordtica", "Lordótica" , "APVertical", "Apicallordosis", "TóraxAP"] #AP vertical
-    frontAP_images = all_studies_DF[all_studies_DF['SeriesDescription'].isin(frontAP)]
-
-    frontAP = ["ANTEROPOSTERIOR", "AP"]
-    frontAP_images = frontAP_images.append(all_studies_DF[all_studies_DF['ViewPosition'].isin(frontAP)])
-    #frontAP_images = frontAP_images.groupby('ImagePath').first()
-
-    #costillas
-    cost = ["Costillas","CostillasAP17","CostillasAP812","Costillasobl17","Costillasobl812","EsternonAntoblder",
-    "EsternonLateral"]
-    cost_images = all_studies_DF[all_studies_DF['SeriesDescription'].isin(cost)]
-    cost_images = cost_images.append(all_studies_DF[all_studies_DF['ProtocolName'].isin(['Costillas'])])
-    
-
-    ped = ['Pediatra3aos',"Pediatría3años","Pedit3aos",  "Pediát3años"] 
-    ped_images = ped_images.append(all_studies_DF[all_studies_DF['SeriesDescription'].isin(ped)])
-    #ped_images = ped_images.groupby('ImagePath').first()
-
-    all_non_front = side_images_ver_lef
-    all_non_front = all_non_front.append(ped_images)
-    all_non_front = all_non_front.append(side_images_ver_rig)
-    all_non_front = all_non_front.append(frontAP_images)
-    all_non_front = all_non_front.append(frontAPhorizontal_images)
-    all_non_front = all_non_front.append(cost_images)
-
-    
-    frontPA_images = all_studies_DF[~all_studies_DF['ImagePath'].isin(all_non_front['ImagePath'])]
-    frontPA_images = frontPA_images[~frontPA_images['StudyID'].isin(studies_to_review['StudyID'])]
+def splitImagesPositionView():
+    dfa = pd.read_csv('_all_info_studies_labels_160K.csv', header = 0).astype(str)
+    print(dfa.shape)
+    pr = pd.read_csv('Positions_Reviewed.csv', header = 0).astype(str)
 
 
+    m = pd.merge(dfa, pr, how='left', on=['ViewPosition','CodeMeaning','ProtocolName','SeriesDescription'])
+    m.drop_duplicates(subset = 'ImagePath', inplace=True)
+    dfa = pd.merge(dfa, m[['ImagePath','Review', 'Pediatric']], on='ImagePath', how='left')
 
-    side_images_ver_lef.to_csv('position_side_ver_lef_images' + fileSuffix )
-    side_images_ver_rig.to_csv('position_side_ver_rig_images' + fileSuffix)
-    #side_images[side_images['ViewPosition'].isin(['LLD','RL'])].to_csv('position_side_right_images.csv')
-    frontPA_images.to_csv('position_frontPA_images' + fileSuffix)
-    frontAP_images.to_csv('position_frontAP_images' + fileSuffix) #vertical e.g. sitting on bed
-    frontAPhorizontal_images.to_csv('position_frontAPHorizontal_images' + fileSuffix)
-    cost_images.to_csv('position_costal_images' + fileSuffix)
-    ped_images.to_csv('position_pediatric_images' + fileSuffix)
-    studies_to_review.to_csv('position_toreview_images' + fileSuffix)
-
-    return {'side' : side_images_ver_lef, 'front': frontPA_images, 'sideR' : side_images_ver_rig, 'frontAP' : frontAP_images, 'ped': ped_images }
+    dfa.to_csv('all_info_studies_labels_160K.csv')
+    return
 
 
 def summarizeAllStudiesByCategoricalField (file = all_info_studies_file, categorical_field = None):
@@ -785,30 +702,60 @@ def summarizeAllStudies(file = all_info_studies_file):
 
     return summary
 #summarizeAllStudies()
-def generateMeanXRay(sample):
-    #load a sample (n =100 ) of frontal views
-    n_sample = sample if sample else 100
-    front_studies = pd.read_csv(root + '/Rx-thorax-automatic-captioning' + '/position_front_images.csv',  header = 0)
-    front_studies = front_studies.sample(n = n_sample,random_state=3)
-    concatenated_img = np.full((400, 400,1), 0) #remove
-    for path in front_studies['ImagePath']:
-        path = root + '/SJ' + path #change
-        img = img_as_float(io.imread(path))
-        img = transform.resize(img, (400,400))
-        img = np.expand_dims(img, -1)
-        img = np.uint8(img * 255)
+def generateMeanAndStdImage(d, position,n_sample):
+    mean = np.full((400, 400), 0)
+    for path in d:
+        path = root + '/SJ' + path 
+        try:
+            img = img_as_float(io.imread(path))
+            img = transform.resize(img, (400,400))
+            #img = np.expand_dims(img, -1)
+            img = np.uint8(img * 255)
 
-        concatenated_img = np.concatenate((concatenated_img,img), axis=2)
+            #concatenated_img = np.concatenate((concatenated_img,img), axis=2)
+            mean = img + mean 
+        except:
+            print(path)
+            pass
 
-    #calculate mean
-    mean = np.uint8(np.mean(concatenated_img, axis=2))
-    img = exposure.equalize_hist(mean)
-    io.imsave('graphs/MeanImage.png',img)
-    std = np.uint8(np.std(concatenated_img, axis=2))
+    mean =  mean / n_sample
+    img = exposure.equalize_hist(np.uint8(mean))
+    io.imsave('graphs/_' + position + '_MeanImage.png',img)
+
+    #calculate std
+    std = np.full((400, 400), 0)
+    for path in d:
+        path = root + '/SJ' + path 
+        try:
+            img = img_as_float(io.imread(path))
+            img = transform.resize(img, (400,400))
+            #img = np.expand_dims(img, -1)
+            img = np.uint16(img * 255)
+
+            #concatenated_img = np.concatenate((concatenated_img,img), axis=2)
+            std = np.power((img - mean),2) + std 
+        except:
+            print(path)
+            pass
+    std = np.sqrt(std/n_sample)
     img = exposure.equalize_hist(std)
-    io.imsave('graphs/StdImage.png',img)
+    io.imsave('graphs/_' + position + '_StdImage.png',img)
 
     return
+def generateMeanAndStdImageByEachPosition(n_sample = 500):
+    df = pd.read_csv('all_info_studies_labels_160K.csv', header = 0)
+    print(df.Review.value_counts())
+    
+    for position in (set(df.Review.value_counts().index.values) - set(['EXCLUDE'])):
+        d = df[(df.Review == position) & (df.Pediatric != 'PED' )]
+        d = d.sample(n = n_sample,random_state=3)
+        d = d.ImagePath.values
+        generateMeanAndStdImage(d,position, n_sample)
+    #pediatric mean and std image
+    print(df.Pediatric.value_counts())
+    d = df[(df.Review != 'L') & (df.Pediatric == 'PED' )]
+    d = d.ImagePath.values
+    generateMeanAndStdImage(d,'PED', d.shape[0])
 
 
 def getAllInfoPatient(patient_ID_XNAT= False , patient_ID=False):
@@ -1083,7 +1030,7 @@ def saveAllStudyManualLabelsDataset(source_label_file = None):
         if len(li)>1 and 'exclude' in li:
             li.remove('exclude') #first: remove label 'exclude' from studies with multiple labels
         if len(li)>1 and 'normal' in li: #second: remove label 'normal' from studies with multiple labels
-            #if not (len(li)==2 and 'exclude' in li): #exception: keep normal if the only remaining label is exclude
+            #if not (len(li)==2 and 'unchanged' in li): #exception: keep normal if the only remaining label is exclude
             li.remove('normal')
         return li
 
@@ -1185,6 +1132,13 @@ def mergeAllStudyLabels160K():
     merge =  pd.concat([manual_DF,aut_DF], axis = 0 ,ignore_index = True)
     print(merge.shape[0])
     merge.to_csv('all_info_studies_labels_160K.csv')
+    
+
+    return
+
+def generatePublicFile():
+    merge = pd.read_csv('all_info_studies_labels_160K.csv', header = 0).astype(str)
+
 
     #exclude images
     #exclude non-evaluable images
@@ -1198,14 +1152,7 @@ def mergeAllStudyLabels160K():
     print(merge.shape[0])
     print(excluded.groupby('ImagePath').first().ReasonToExclude.value_counts())
 
-    #load rx derived field with projections 
-    pv = pd.read_csv('position_view_all.csv', header = 0)
-    print(pv.shape[0])
-    pv = pv.groupby('ImagePath').first()
-    pv.reset_index(level=0, inplace=True)
-    print(pv.shape[0])
-    merge = pd.merge( merge, pv, how='left', on= 'ImagePath')
-    print(merge.shape[0])
+    
     
 
     #generate birthYear derived field 
@@ -1225,7 +1172,8 @@ def mergeAllStudyLabels160K():
     new_DF['PatientBirth'] = merge['PatientBirth']
     new_DF['PatientSex_DICOM'] = merge['PatientSex']
     new_DF['ViewPosition_DICOM'] = merge['ViewPosition']
-    new_DF['Projection'] = merge['Position'] 
+    new_DF['Projection'] = merge['Review'] 
+    new_DF['Pediatric'] = merge['Pediatric']
     new_DF['Modality_DICOM'] = merge['Modality']
     new_DF['Manufacturer_DICOM'] = merge['Manufacturer']
     new_DF['PhotometricInterpretation_DICOM'] = merge['PhotometricInterpretation']
@@ -1387,12 +1335,11 @@ def buildTreeCounts(fileSuffix = "_160K.csv" ):
 #merge_labeled_files()
 #saveAllStudyManualLabelsDataset()
 #saveAllStudyAutLabelsDataset()
-splitImagesPositionView(fileSuffix = '.csv') #if excludedImage file does not exists, it regenerates it
-splitImagesPositionView(fileSuffix = '_nonXNAT.csv')  #if excludedImage file does not exists, it regenerates it
-mergeAllStudyLabels160K()
-summarizeAllStudiesLabel() #save graphs and generate file of derived field positionviews 
-summarizeAllStudies() #save unique labels files 
-buildTreeCounts()
+#mergeAllStudyLabels160K()
+#generatePublicFile()
+#summarizeAllStudiesLabel() #save graphs and generate file of derived field positionviews 
+#summarizeAllStudies() #save unique labels files 
+#buildTreeCounts()
 
 def saveAllSentences():
     #load sentences from report_sentences_preprocessed
@@ -1472,8 +1419,8 @@ if imgs_ID_XNAT is not None:
     else:
         preprocess_images([imgs_ID_XNAT])
 
-if sample_image is not None:
-    generateMeanXRay(sample_image)
+if image_mean is not None:
+    generateMeanAndStdImageByEachPosition()
 
 if extract_topics is not None:
     extract_sent_topics(extract_topics_file, None)
