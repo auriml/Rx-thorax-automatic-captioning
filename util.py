@@ -47,7 +47,7 @@ parser.add_argument('-dn',  metavar='numerical_field', type=str,
                          'PatientBirth,StudyDate,Rows,Columns,PixelAspectRatio,SpatialResolution, XRayTubeCurrent,ExposureTime, ExposureInuAs,Exposure, RelativeXRayExposure, BitsStored, PixelRepresentation, WindowCenter, WindowWidth')
 
 parser.add_argument('-split',action='store_true',
-                    help='split in side and front views based on DICOM info. Default source filename: /all_info_studies.csv.')
+                    help='split in type of projections views based on manual review of DICOM info and ResNet50.')
 
 parser.add_argument('-e',action='store_true',
                     help='generate list of images to exclude. It excludes non Rx thorax studies or if patient position is not vertical or if image has not associated report. Default source filename: /all_info_studies.csv.')
@@ -62,7 +62,7 @@ parser.add_argument('-fst',  metavar='filename', type=str, nargs='?', default= T
 parser.add_argument('-est',  metavar='filename', type=str, nargs='?', default= True,
                     help='extract and save in filename sentence topics. Default filename: /extract_sent_topics.csv  ')
 
-
+parser.add_argument('-public', action='store_true', help='generate final File with all info to be public')
 
 #parser.add_argument('u', metavar='username', type=str, nargs=1,
                     #help='XNAT account username')
@@ -83,11 +83,12 @@ filename_st =  all_info_studies_st_file if args.fst is None else None
 filename_to_describe =  all_info_studies_file if args.d is None else None
 categorical_field = args.dc if args.dc  else  None
 numerical_field = args.dn if args.dn  else  None
-split_images_side_front = args.split if args.split  else  None
+solve_images_projection = args.split if args.split  else  None
 exclude = args.e if args.e  else  None
 imgs_ID_XNAT = args.imgs[0] if args.imgs  else  None
 image_mean = args.imgm if args.imgm  else  None
 extract_topics = extract_topics_file if args.est is None else None
+save_public_file = args.public if args.public else None
 
 
 #j_username = args.u[0] if args.u  else  ''
@@ -374,17 +375,24 @@ def generatePositionsFileToReview():
     c.to_csv('Positions.csv')
     return 
 
-def splitImagesPositionView():
+def solve_images_projection():
     dfa = pd.read_csv('_all_info_studies_labels_160K.csv', header = 0).astype(str)
     print(dfa.shape)
+    #projections are resolved manually based on non-structured text in 'ViewPosition','CodeMeaning','ProtocolName','SeriesDescription']
+    #those non resolvable based on those fields are marked as "UNK"
+    #merge files
     pr = pd.read_csv('Positions_Reviewed.csv', header = 0).astype(str)
-
-
     m = pd.merge(dfa, pr, how='left', on=['ViewPosition','CodeMeaning','ProtocolName','SeriesDescription'])
     m.drop_duplicates(subset = 'ImagePath', inplace=True)
     dfa = pd.merge(dfa, m[['ImagePath','Review', 'Pediatric']], on='ImagePath', how='left')
-
-    dfa.to_csv('all_info_studies_labels_160K.csv')
+    
+    #UNK projections are then resolved in PA and L by pretrained model based on ResNet50
+    #merge files, Review_x contains projections manually reviewed, Review_y contains projections classified by RESNET
+    dfu = pd.read_csv('../chestViewSplit/all_info_studies_labels_projections_160K.csv', header = 0).astype(str)
+    dfa = pd.merge(dfa, dfu[['ImagePath','Review']], on='ImagePath', how='left')
+    dfa['MethodProjection'] = 'Manual review of DICOM fields'
+    dfa.loc[dfa['Review_x'] == 'UNK','MethodProjection'] = 'resnet-50.t7'
+    dfa.to_csv('all_info_studies_labels_projections_160K.csv')
     return
 
 
@@ -1137,7 +1145,7 @@ def mergeAllStudyLabels160K():
     return
 
 def generatePublicFile():
-    merge = pd.read_csv('all_info_studies_labels_160K.csv', header = 0).astype(str)
+    merge = pd.read_csv('all_info_studies_labels_projections_160K.csv', header = 0).astype(str)
 
 
     #exclude images
@@ -1172,7 +1180,8 @@ def generatePublicFile():
     new_DF['PatientBirth'] = merge['PatientBirth']
     new_DF['PatientSex_DICOM'] = merge['PatientSex']
     new_DF['ViewPosition_DICOM'] = merge['ViewPosition']
-    new_DF['Projection'] = merge['Review'] 
+    new_DF['Projection'] = merge['Review_y']
+    new_DF['MethodProjection'] = merge['MethodProjection'] 
     new_DF['Pediatric'] = merge['Pediatric']
     new_DF['Modality_DICOM'] = merge['Modality']
     new_DF['Manufacturer_DICOM'] = merge['Manufacturer']
@@ -1401,8 +1410,8 @@ if numerical_field is not None:
     else:
         print(summarizeAllStudiesByNumericalField( numerical_field =numerical_field))
 
-if split_images_side_front is not None:
-    splitImagesPositionView()
+if solve_images_projection is not None:
+    solve_images_projection()
 
 if exclude is not None:
     generateExcludedImageList()
@@ -1424,3 +1433,6 @@ if image_mean is not None:
 
 if extract_topics is not None:
     extract_sent_topics(extract_topics_file, None)
+
+if save_public_file is not None:
+    generatePublicFile()

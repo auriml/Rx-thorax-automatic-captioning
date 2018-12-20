@@ -1,12 +1,12 @@
-# SJ Chest X-Ray Dataset (note: under construction...)
+# PADCHEST Dataset (note: under construction...)
 
-The SJ dataset is a chest x-ray labeled dataset containing 160K high resolution images with their corresponding labeled reports. Its detailed description and labeling methods are described in [1,2].  
-This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License and is downloadble from (coming soon). For attribution, please cite as [1,2]. 
+The PADCHEST dataset is a chest x-ray labeled dataset containing 160K high resolution images with their corresponding labeled reports. Its detailed description and labeling methods are described in [1].  
+This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License and is downloadble from (coming soon). For attribution, please cite as [1]. 
 
-## SJ Folder Structure: 
+## PADCHEST Folder Structure: 
 Images are distributed in 50 zip files adding up to 1 TB. 
 
-The file "SJ_chest_x_ray_images_labels_160K.csv" provides the following information for each image:
+The file "PADCHEST_chest_x_ray_images_labels_160K.csv" provides the following information for each image:
 
   - ImageID,
   
@@ -24,7 +24,11 @@ The file "SJ_chest_x_ray_images_labels_160K.csv" provides the following informat
   
   - ViewPosition_DICOM, 
   
-  - Projection, 
+  - Projection,
+
+  - Pediatric,
+
+  - MethodProjection, 
   
   - Modality_DICOM, 
   
@@ -78,7 +82,7 @@ There are two types of fields:
 
 1. Fields with suffix DICOM contains the values of the original field in the DICOM standard [ref 3]. DICOM® (Digital Imaging and Communications in Medicine) is the international standard to transmit, store, retrieve, print, process, and display medical imaging information.  Consult [DICOM standard]( https://www.dicomstandard.org) for field descriptions. 
 
-2. All other non DICOM fields enrich the SJ dataset with additional information.
+2. All other non DICOM fields enrich the PADCHEST dataset with additional information.
 - Projection: A working classification of the 5 main x-ray projections identified. 
 - Report: This field contains the radiological interpretation snippet extracted from the original study report. The text is preprocessed, words are stemmed and tokenized. Each sentence is separated by ‘.’.
 - LabelsLocalizationsBySentence: This field contains the anatomic locations for each label as a sequence that follows the order of sentences in a report. Locations are always preceded by the token "loc" so to differentiate them from labels of differential diagnosis and radiological findings. The sequence repeats the pattern formed by one label followed by none or many locations for this label ( label, (0..n) loc name )
