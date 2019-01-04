@@ -1,10 +1,10 @@
 # PADCHEST Dataset (note: under construction...)
 
 The PADCHEST dataset is a chest x-ray labeled dataset containing 160K high resolution images with their corresponding labeled reports. Its detailed description and labeling methods are described in [1].  
-This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License and is downloadble from (coming soon). For attribution, please cite as [1]. 
+This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License and is downloadble from http://bimcv.cipf.es/va/2_projectes/padchest/. For attribution, please cite as [1]. 
 
 ## PADCHEST Folder Structure: 
-Images are distributed in 50 zip files adding up to 1 TB. 
+Images are distributed in 54 zip files adding up to 1 TB. 
 
 The file "PADCHEST_chest_x_ray_images_labels_160K.csv" provides the following information for each image:
 
@@ -134,10 +134,8 @@ Please note that LabelsLocalizationsBySentence includes all labels for each sent
 
 Ref:
 
-[1] A. Bustos, A. Pertusa, JM. Salinas, M. de la Iglesia. A Chest X-Ray Image Dataset with Multi-label Annotated Reports Covering More than 300 Radiological Findings, Diagnoses and Locations. (Publication Ongoing)
+[1] A. Bustos, A. Pertusa, JM. Salinas, M. de la Iglesia. PadChest: A large chest x-ray image dataset with multi-label annotated reports. (Publication Ongoing)
 
-[2] A. Bustos, A. Pertusa. Multi-label annotation of chest x-ray reports in spanish to controlled terminology using neural networks. (Publication Ongoing)
-
-[3] NEMA PS3 / ISO 12052, Digital Imaging and Communications in Medicine (DICOM) Standard, National Electrical Manufacturers Association, Rosslyn, VA, USA
+[2] NEMA PS3 / ISO 12052, Digital Imaging and Communications in Medicine (DICOM) Standard, National Electrical Manufacturers Association, Rosslyn, VA, USA
 
 <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.

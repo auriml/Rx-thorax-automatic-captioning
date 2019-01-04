@@ -1170,10 +1170,14 @@ def generatePublicFile():
  
 
     #generate public file
-    num_zips = 50 
+     
     new_DF = pd.DataFrame()
-    new_DF['ImageID'] = merge['ImagePath'].str.split("/").str.get(-1)
+    new_DF['ImageID'] = merge['ImagePath'].str.split("/").str.get(-1) #note: on this line a pandas "odd behaviour" is assigning the merge index to the new_DF, 
+    #so new_DF has a non correlative index which makes erroneously skipping numbers of dir assignemnt in next line, 
+    # so the last 7K images have been assigned null dirs
     new_DF['ImageDir'] = pd.Series(50 * (merge.index +1) / merge.shape[0]).astype(int) 
+    new_DF.loc[new_DF.ImageDir.isnull(), 'ImageDir'] = 52 #fix of null dirs to avoid regenerating all zips
+    new_DF.loc[new_DF.tail(3500).index,'ImageDir'] = 53 #fix of null dirs to avoid regenerating all zips
     new_DF['StudyDate_DICOM'] = merge['StudyDate']
     new_DF['StudyID'] = merge['StudyID']
     new_DF['PatientID'] = merge['PatientID']
