@@ -63,6 +63,7 @@ root = os.getcwd()
 os.chdir(currentroot)
 
 args = parser.parse_args()
+args.predict = True
 de = 100 # dimension word embedding
 
 def string2numeric_hash(text):
@@ -737,6 +738,7 @@ else:
     textFile = "sentences_preprocessed.csv" 
     path = root + '/Rx-thorax-automatic-captioning' + textFile
     df = pd.read_csv(textFile , keep_default_na=False, header = 0)
+    df0 = df
     unique_reports = df['codigoinforme'].unique()
     print(len(unique_reports))
 
@@ -759,8 +761,7 @@ else:
     path = './labeling_models/' + model_name
     model = BiRNN
     model= torch.load(path, map_location={'cuda:0': 'cpu'})
-    if device:
-        model.to(device)
+    if device: model.to(device)
 
     
     
@@ -818,9 +819,18 @@ else:
             sent_labels = pd.DataFrame(list(z), columns = ['text', 'labels'])
             df = pd.merge( df, sent_labels, how='left', on= 'text')
             
-            print(z)
+            #print(z)
+
+            
+            z_coded= [[_x,*_y,] for _x,_y in zip(texts,y_pred.cpu().numpy())]
+            sent_labels_coded = pd.DataFrame(z_coded)
+            sent_labels_coded = sent_labels_coded.rename(columns={ sent_labels_coded.columns[0]: "text" })
+            df0 = pd.merge( df0, sent_labels_coded, how='left', on= 'text')
+            #print(z_coded)
+            
     
-    df.to_csv('sentences_reports_aut_labeled.csv')
+    df.to_csv('_sentences_reports_aut_labeled.csv')
+    df0.to_csv('_sentences_reports_aut_labeled_coded.csv')
 
 def generateRandomTestSample(n = 1000):
     #load sentence file

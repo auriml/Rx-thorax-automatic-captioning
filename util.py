@@ -376,7 +376,7 @@ def generatePositionsFileToReview():
     return 
 
 def solve_images_projection():
-    dfa = pd.read_csv('_all_info_studies_labels_160K.csv', header = 0).astype(str)
+    dfa = pd.read_csv('all_info_studies_labels_160K_Ene19.csv', header = 0).astype(str)
     print(dfa.shape)
     #projections are resolved manually based on non-structured text in 'ViewPosition','CodeMeaning','ProtocolName','SeriesDescription']
     #those non resolvable based on those fields are marked as "UNK"
@@ -392,7 +392,7 @@ def solve_images_projection():
     dfa = pd.merge(dfa, dfu[['ImagePath','Review']], on='ImagePath', how='left')
     dfa['MethodProjection'] = 'Manual review of DICOM fields'
     dfa.loc[dfa['Review_x'] == 'UNK','MethodProjection'] = 'resnet-50.t7'
-    dfa.to_csv('all_info_studies_labels_projections_160K.csv')
+    dfa.to_csv('all_info_studies_labels_projections_160K_Ene19.csv')
     return
 
 
@@ -1001,7 +1001,8 @@ def remove_redundant(x):
 #Temporal method: add to all info study file ("all_info_studies_file") 
 # the manual labels  ("source_label_file" e.g. labeled_sent_28K.csv)
 def saveAllStudyManualLabelsDataset(source_label_file = None):
-
+    
+    source_label_file = '/manual_review/labeled_sent_28K_no_masa.csv'
     path = root + '/Rx-thorax-automatic-captioning/' + all_info_studies_st_file
     all_studies_st_DF = pd.read_csv(path, sep = ',' , header = 0)
 
@@ -1060,7 +1061,7 @@ def saveAllStudyManualLabelsDataset(source_label_file = None):
     
    
     
-    all_studies_DF.to_csv('manual_review/all_info_studies_labels.csv')
+    all_studies_DF.to_csv('manual_review/all_info_studies_labels_Ene19.csv')
     return
 
 
@@ -1123,7 +1124,7 @@ def saveAllStudyAutLabelsDataset(source_label_file = "sentences_reports_aut_labe
 
    
 def mergeAllStudyLabels160K():
-    fileSuffix = ".csv"
+    fileSuffix = "_Ene19.csv"
     filePrefix = 'manual_review/' 
     study_labels_file = filePrefix  + 'all_info_studies_labels' + fileSuffix 
     path = root + '/Rx-thorax-automatic-captioning/' + study_labels_file
@@ -1139,13 +1140,13 @@ def mergeAllStudyLabels160K():
 
     merge =  pd.concat([manual_DF,aut_DF], axis = 0 ,ignore_index = True)
     print(merge.shape[0])
-    merge.to_csv('all_info_studies_labels_160K.csv')
+    merge.to_csv('all_info_studies_labels_160K_Ene19.csv')
     
 
     return
 
 def generatePublicFile():
-    merge = pd.read_csv('all_info_studies_labels_projections_160K.csv', header = 0).astype(str)
+    merge = pd.read_csv('all_info_studies_labels_projections_160K_Ene19.csv', header = 0).astype(str)
 
 
     #exclude images
@@ -1169,15 +1170,21 @@ def generatePublicFile():
     
  
 
+    merge['ImageID'] = merge['ImagePath'].str.split("/").str.get(-1)
+    
+    #generate dir zips
+    #dirzips are hard-coded so to be compliant with prior uploads and need to be read from available file 
+    dir_zips = pd.read_csv('ImageID-ImageDir.csv', sep = ',', header = 0, names = ['index', 'ImageID', 'ImageDir'])
+    dir_zips.drop(columns = ['index'], inplace= True)
+    merge = merge.merge(dir_zips, on = 'ImageID' )
+
+
     #generate public file
-     
+
+
     new_DF = pd.DataFrame()
-    new_DF['ImageID'] = merge['ImagePath'].str.split("/").str.get(-1) #note: on this line a pandas "odd behaviour" is assigning the merge index to the new_DF, 
-    #so new_DF has a non correlative index which makes erroneously skipping numbers of dir assignemnt in next line, 
-    # so the last 7K images have been assigned null dirs
-    new_DF['ImageDir'] = pd.Series(50 * (merge.index +1) / merge.shape[0]).astype(int) 
-    new_DF.loc[new_DF.ImageDir.isnull(), 'ImageDir'] = 52 #fix of null dirs to avoid regenerating all zips
-    new_DF.loc[new_DF.tail(3500).index,'ImageDir'] = 53 #fix of null dirs to avoid regenerating all zips
+    new_DF['ImageID'] = merge['ImageID'] #note: on this line a pandas "odd behaviour" is assigning the merge index to the new_DF, 
+    new_DF['ImageDir'] = merge['ImageDir']
     new_DF['StudyDate_DICOM'] = merge['StudyDate']
     new_DF['StudyID'] = merge['StudyID']
     new_DF['PatientID'] = merge['PatientID']
@@ -1186,7 +1193,8 @@ def generatePublicFile():
     new_DF['ViewPosition_DICOM'] = merge['ViewPosition']
     new_DF['Projection'] = merge['Review_y']
     new_DF['MethodProjection'] = merge['MethodProjection'] 
-    new_DF['Pediatric'] = merge['Pediatric']
+    merge.loc[merge.Pediatric != 'PED', 'Pediatric'] = 'No'
+    new_DF['Pediatric'] = merge['Pediatric'] 
     new_DF['Modality_DICOM'] = merge['Modality']
     new_DF['Manufacturer_DICOM'] = merge['Manufacturer']
     new_DF['PhotometricInterpretation_DICOM'] = merge['PhotometricInterpretation']
@@ -1209,6 +1217,9 @@ def generatePublicFile():
     new_DF['Labels'] = merge['labels']
     new_DF['Localizations'] = merge['localizations']
     new_DF['LabelsLocalizationsBySentence'] = merge['study_label_and_local']
+
+    
+
 
     CUI_DF = pd.read_csv('manual_review/term_CUI_counts.txt', sep = ',', header = 0)
     CUI_DF['CUI'].dropna(inplace = True)
@@ -1235,20 +1246,25 @@ def generatePublicFile():
     new_DF.drop_duplicates(subset = 'ImageID', inplace=True)
     print(new_DF.shape[0])
 
-    new_DF.to_csv('SJ_chest_x_ray_images_labels_160K.csv')
+    new_DF.to_csv('SJ_chest_x_ray_images_labels_160K_Feb19.csv')
 
     return
      
 
 
-def summarizeAllStudiesLabel(all_info_studies_labels=None, fileSuffix = "_160K.csv"):
+def summarizeAllStudiesLabel(all_info_studies_labels=None, fileSuffix = "_160K.csv", level = "_image" ): #level count could be in ["_image", "_study"], fileSuffix in ["_160K.csv" , ".csv"]
     filePrefix = 'manual_review/' if fileSuffix == ".csv" else ""
     study_labels_file = filePrefix  + 'all_info_studies_labels' + fileSuffix if not all_info_studies_labels else all_info_studies_labels
     
     path = root + '/Rx-thorax-automatic-captioning/' + study_labels_file
     all_studies_labels_DF = pd.read_csv(path, sep = ',' , header = 0)
-    #count by study not by image (PA and Lateral image views share the same reports and therefore the same labels)
-    row_labels = all_studies_labels_DF.groupby('StudyID').head(1)
+    if level == "_image" : 
+        row_labels = all_studies_labels_DF
+        fileSuffix = level + fileSuffix
+    else:
+        #count by study not by image (PA and Lateral image views share the same reports and therefore the same labels)
+        row_labels = all_studies_labels_DF.groupby('StudyID').head(1)
+    
     #count different labels
     labels = row_labels['labels'].astype('str')
     pattern = re.compile('[^a-zA-Z,\s\-]+')
@@ -1265,7 +1281,7 @@ def summarizeAllStudiesLabel(all_info_studies_labels=None, fileSuffix = "_160K.c
 
     return
 
-def buildTreeCounts(fileSuffix = "_160K.csv" ):
+def buildTreeCounts(fileSuffix = "_160K.csv", level = "_image" ): #level count could be in ["_image", "_study"], fileSuffix in ["_160K.csv" , ".csv"]
     stream = open("manual_review/trees_code.txt", "r")
     docs = yaml.load_all(stream)
 
@@ -1274,7 +1290,12 @@ def buildTreeCounts(fileSuffix = "_160K.csv" ):
     path = root + '/Rx-thorax-automatic-captioning/' + study_labels_file
     all_studies_labels_DF = pd.read_csv(path, sep = ',' , header = 0)
 
-    row_labels = all_studies_labels_DF.groupby('StudyID').head(1)
+    if level == "_image" : 
+        row_labels = all_studies_labels_DF
+        fileSuffix = level  + fileSuffix
+    else:
+        row_labels = all_studies_labels_DF.groupby('StudyID').head(1)
+
     row_labels['labels'] = row_labels['labels'].astype('str')
     pattern = re.compile('[^a-zA-Z,\s]+')
     row_labels['label_list'] = row_labels['labels'].apply(lambda r: set([item.strip() for item in pattern.sub('', r).split(",")]))
@@ -1340,6 +1361,7 @@ def buildTreeCounts(fileSuffix = "_160K.csv" ):
             #with open("manual_review/tree_term_counts.txt", "a") as text_file:
                 #print(RenderTree(tree_root), file=text_file)
     df.drop_duplicates(inplace=True)
+    
     df.to_csv(filePrefix +'term_CUI_counts' + fileSuffix)
     return
 
@@ -1349,10 +1371,11 @@ def buildTreeCounts(fileSuffix = "_160K.csv" ):
 #saveAllStudyManualLabelsDataset()
 #saveAllStudyAutLabelsDataset()
 #mergeAllStudyLabels160K()
-#generatePublicFile()
-#summarizeAllStudiesLabel() #save graphs and generate file of derived field positionviews 
-#summarizeAllStudies() #save unique labels files 
-#buildTreeCounts()
+#solve_images_projection()
+generatePublicFile()
+#summarizeAllStudies() #save graphs and generate file of derived field positionviews - not used
+#summarizeAllStudiesLabel() #save unique labels files with counts. Counts can be by image or by study
+#buildTreeCounts() #use count files generated by summarizeAllStudiesLabels
 
 def saveAllSentences():
     #load sentences from report_sentences_preprocessed
