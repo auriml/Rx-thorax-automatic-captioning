@@ -31,7 +31,7 @@ import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-pred', '--predict',  action='store_true', help='Load best model and predict')
-parser.add_argument('-mc', '--model-class',  default='CNN_ATT', help='Type of model to run (RNN,CNN, CNN_ATT, RNN_ATT) ')
+parser.add_argument('-mc', '--model-class',  default='RNN_ATT', help='Type of model to run (RNN,CNN, CNN_ATT, RNN_ATT) ')
 parser.add_argument('-mep', '--max-epoch',  type=int, default=100, help='Epoch to run')
 parser.add_argument('-estop', '--early-stopping',  action='store_true', help='Early stopping')
 parser.add_argument('-log', '--log',  action='store_true', help='Log metrics')
@@ -63,7 +63,8 @@ root = os.getcwd()
 os.chdir(currentroot)
 
 args = parser.parse_args()
-args.predict = True
+print('Predict')
+print(args.predict)
 de = 100 # dimension word embedding
 
 def string2numeric_hash(text):
@@ -72,7 +73,7 @@ def string2numeric_hash(text):
 
 def labels2set(x):
     l = [re.sub(r' right side| left side| both side.*| bilateral', '', item) for item in x.values if pd.isnull(item) == False] #remove localizations that were manually added to labels
-    pattern = re.compile('[^a-zA-Z,\s\-]+')
+    pattern = re.compile('[^a-zA-Z0-9,\s\-]+')
     s = set(pd.Series([pattern.sub('', item.strip()) for item in l if not pd.isna(item)]))
     return s
     
@@ -83,9 +84,11 @@ def load_labeled_data(de):
     labels = []
     texts = []
     seq_lengths = []
-    sent_labels = '/manual_review/labeled_sent_28K.csv'
+    sent_labels = '/manual_review/labeled_sent_28K_covid.csv'
     path = root + '/Rx-thorax-automatic-captioning' + sent_labels
     column_names = ['text','topic', 'counts']
+    column_names = ['text']
+
     column_names.extend(list('123456789'))
     sent_labels = pd.read_csv(path, sep = ',',  header = 0, names =column_names)
     sent_labels['labels_set'] = sent_labels[list('123456789')].apply(lambda x: labels2set(x), axis=1)
@@ -97,7 +100,7 @@ def load_labeled_data(de):
 
     from fastText import load_model
 
-    path = root + '/Rx-thorax-automatic-captioning' + '/embeddings/fasttext/text.bin'
+    path = root + '/Rx-thorax-automatic-captioning' + '/embeddings/fasttext/covid_text.bin'
     f = load_model(path)
     words, frequency = f.get_words(include_freq=True)
 
@@ -126,10 +129,10 @@ def load_labeled_data(de):
             b[i][0:len(j)] = np.zeros([1,de])
             seq_lengths.append(0)
 
-    np.save('seq_lengths',seq_lengths)
-    np.save('train',b)
-    np.save('text', texts)
-    np.save('labels',labels)
+    np.save('seq_lengths_covid',seq_lengths)
+    np.save('train_covid',b)
+    np.save('text_covid', texts)
+    np.save('labels_covid',labels)
 
 
     #labels = [pattern.sub('', item.strip()) for sublist in labels for item in sublist if not pd.isna(item)]
@@ -137,7 +140,8 @@ def load_labeled_data(de):
     #idx2labels = {string2numeric_hash(l): l for l in labels}
 
     return train, labels, texts
-#load_labeled_data(de)
+load_labeled_data(de)
+#print('labeled data loaded')
 
 
 
@@ -150,15 +154,15 @@ class Sent_Dataset(Dataset):
         # stuff
         ...
         self.transforms = transforms
-        data = np.load('train.npy')
+        data = np.load('train_covid.npy')
         if CNN_format:
             data = np.transpose(data, [0,2,1])
         else:
             pass
-        self.seq_lenghts_array = np.load('seq_lengths.npy')
+        self.seq_lenghts_array = np.load('seq_lengths_covid.npy')
         self.data_array = data
-        self.labels_array = np.load('labels.npy')
-        self.texts_array = np.load('text.npy')
+        self.labels_array = np.load('labels_covid.npy')
+        self.texts_array = np.load('text_covid.npy')
         self.mlb = joblib.load('mlb.pkl')
         self.best_acc = 0
         self.best_acc_by_kfold = defaultdict(lambda: 0)
@@ -483,7 +487,7 @@ class LabelDetailedCategoricalAccuracy(Metric):
 
 if not args.predict:
     batch_size = 1024
-    batch_size = 10
+    
     n_splits = 11
     cnn_format = False
     if "CNN" in args.model_class:
@@ -510,9 +514,9 @@ if not args.predict:
         train_sampler = BatchSamplerOrdered(SubsetRandomSampler(idx_train[:]), batch_size, False)
         valid_sampler = BatchSamplerOrdered(SubsetRandomSampler(idx_valid[:]), batch_size, False)
 
-        train_loader = DataLoader(sent_dataset, batch_sampler=train_sampler, shuffle=False, num_workers=4,
+        train_loader = DataLoader(sent_dataset, batch_sampler=train_sampler, shuffle=False, num_workers=0,
                             pin_memory=True if torch.cuda.is_available() else False)
-        valid_loader = DataLoader(sent_dataset, batch_sampler=valid_sampler, shuffle=False,num_workers=4,
+        valid_loader = DataLoader(sent_dataset, batch_sampler=valid_sampler, shuffle=False,num_workers=0,
                             pin_memory=True if torch.cuda.is_available() else False)
 
         nlabel = len(sent_dataset.labels_array[0])
@@ -734,8 +738,8 @@ if not args.predict:
 
 #predict
 else:
-    
-    textFile = "sentences_preprocessed.csv" 
+    iteration = "covid_1"
+    textFile = iteration +'_sentences_preprocessed.csv' 
     path = root + '/Rx-thorax-automatic-captioning' + textFile
     df = pd.read_csv(textFile , keep_default_na=False, header = 0)
     df0 = df
@@ -750,14 +754,15 @@ else:
 
     #load pretrained wordembedding model
     from fastText import load_model #TODO: retrain wordvectors with masa not mas (file: report_sentences_preprocessed)
-    path = root + '/Rx-thorax-automatic-captioning' + '/embeddings/fasttext/text.bin'
+    path = root + '/Rx-thorax-automatic-captioning' + '/embeddings/fasttext/covid_text.bin'
     f = load_model(path)
     
     #load labels decoder
     mlb = joblib.load('mlb.pkl')
 
     #load model
-    model_name = "0_RNN_ATT_41_micro_f1=0.9241743.pth"
+    #model_name = "0_RNN_ATT_41_micro_f1=0.9241743.pth"   #load tesis model
+    model_name = "0_RNN_ATT_75_micro_f1=0.9160494.pth"  #load covid model 
     path = './labeling_models/' + model_name
     model = BiRNN
     model= torch.load(path, map_location={'cuda:0': 'cpu'})
@@ -774,6 +779,7 @@ else:
 
     batch = 1000
     batch_number = 0
+    pd.DataFrame(list()).to_csv('sentences_aut_labeled.csv')
     for batch_sentences in chunks(unique_sentences,batch):
         print("batch: " + str(batch_number))
         batch_number += 1
@@ -827,10 +833,10 @@ else:
             sent_labels_coded = sent_labels_coded.rename(columns={ sent_labels_coded.columns[0]: "text" })
             df0 = pd.merge( df0, sent_labels_coded, how='left', on= 'text')
             #print(z_coded)
-            
-    
-    df.to_csv('_sentences_reports_aut_labeled.csv')
-    df0.to_csv('_sentences_reports_aut_labeled_coded.csv')
+            sent_labels.to_csv('sentences_aut_labeled.csv', mode='a', header=False)
+
+    df.to_csv(iteration +'_sentences_reports_aut_labeled.csv')
+    df0.to_csv(iteration +'_sentences_reports_aut_labeled_coded.csv')
 
 def generateRandomTestSample(n = 1000):
     #load sentence file
