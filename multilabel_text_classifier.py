@@ -65,7 +65,13 @@ os.chdir(currentroot)
 args = parser.parse_args()
 print('Predict')
 print(args.predict)
+print('Test')
+print(args.test)
 de = 100 # dimension word embedding
+
+iteration = "covid_NEG_1"
+iteration = "covid_1"
+#iteration = 'padchest'
 
 def string2numeric_hash(text):
     return int(hashlib.md5(text.encode('utf-8')).hexdigest()[:8], 16)
@@ -84,7 +90,7 @@ def load_labeled_data(de):
     labels = []
     texts = []
     seq_lengths = []
-    sent_labels = '/manual_review/labeled_sent_28K_covid.csv'
+    sent_labels = '/manual_review/labeled_sent_28K_' + iteration + '.csv'
     path = root + '/Rx-thorax-automatic-captioning' + sent_labels
     column_names = ['text','topic', 'counts']
     column_names = ['text']
@@ -95,7 +101,7 @@ def load_labeled_data(de):
 
     mlb = MultiLabelBinarizer()
     fitted_mlb = mlb.fit(sent_labels['labels_set'].values)
-    joblib.dump(mlb, 'mlb.pkl')
+    joblib.dump(mlb, iteration + 'mlb.pkl')
 
 
     from fastText import load_model
@@ -129,10 +135,10 @@ def load_labeled_data(de):
             b[i][0:len(j)] = np.zeros([1,de])
             seq_lengths.append(0)
 
-    np.save('seq_lengths_covid',seq_lengths)
-    np.save('train_covid',b)
-    np.save('text_covid', texts)
-    np.save('labels_covid',labels)
+    np.save(iteration + 'seq_lengths',seq_lengths)
+    np.save(iteration + 'train',b)
+    np.save(iteration + 'text' , texts)
+    np.save(iteration + 'labels',labels)
 
 
     #labels = [pattern.sub('', item.strip()) for sublist in labels for item in sublist if not pd.isna(item)]
@@ -140,7 +146,7 @@ def load_labeled_data(de):
     #idx2labels = {string2numeric_hash(l): l for l in labels}
 
     return train, labels, texts
-load_labeled_data(de)
+#load_labeled_data(de)
 #print('labeled data loaded')
 
 
@@ -154,16 +160,16 @@ class Sent_Dataset(Dataset):
         # stuff
         ...
         self.transforms = transforms
-        data = np.load('train_covid.npy')
+        data = np.load(iteration +'train.npy')
         if CNN_format:
             data = np.transpose(data, [0,2,1])
         else:
             pass
-        self.seq_lenghts_array = np.load('seq_lengths_covid.npy')
+        self.seq_lenghts_array = np.load(iteration + 'seq_lengths.npy')
         self.data_array = data
-        self.labels_array = np.load('labels_covid.npy')
-        self.texts_array = np.load('text_covid.npy')
-        self.mlb = joblib.load('mlb.pkl')
+        self.labels_array = np.load(iteration +'labels.npy')
+        self.texts_array = np.load(iteration +'text.npy')
+        self.mlb = joblib.load(iteration +'mlb.pkl')
         self.best_acc = 0
         self.best_acc_by_kfold = defaultdict(lambda: 0)
         self.train_accuracies = []
@@ -485,7 +491,7 @@ class LabelDetailedCategoricalAccuracy(Metric):
     
         return z
 
-if not args.predict:
+if (not args.predict and not args.test):
     batch_size = 1024
     
     n_splits = 11
@@ -737,10 +743,10 @@ if not args.predict:
 
 
 #predict
-else:
-    iteration = "covid_1"
+elif not args.test:
+    
     textFile = iteration +'_sentences_preprocessed.csv' 
-    path = root + '/Rx-thorax-automatic-captioning' + textFile
+    path = root + '/Rx-thorax-automatic-captioning/' + textFile
     df = pd.read_csv(textFile , keep_default_na=False, header = 0)
     df0 = df
     unique_reports = df['codigoinforme'].unique()
@@ -758,11 +764,13 @@ else:
     f = load_model(path)
     
     #load labels decoder
-    mlb = joblib.load('mlb.pkl')
+    #mlb = joblib.load(iteration + 'mlb.pkl')
+    mlb = joblib.load("covid_NEG_1" + 'mlb.pkl')
 
     #load model
     #model_name = "0_RNN_ATT_41_micro_f1=0.9241743.pth"   #load tesis model
     model_name = "0_RNN_ATT_75_micro_f1=0.9160494.pth"  #load covid model 
+    model_name = "0_RNN_ATT_85_micro_f1=0.9221266.pth" #load covivd negateed model 
     path = './labeling_models/' + model_name
     model = BiRNN
     model= torch.load(path, map_location={'cuda:0': 'cpu'})
@@ -836,80 +844,103 @@ else:
             sent_labels.to_csv('sentences_aut_labeled.csv', mode='a', header=False)
 
     df.to_csv(iteration +'_sentences_reports_aut_labeled.csv')
-    df0.to_csv(iteration +'_sentences_reports_aut_labeled_coded.csv')
+    #df0.to_csv(iteration +'_sentences_reports_aut_labeled_coded.csv')
 
-def generateRandomTestSample(n = 1000):
-    #load sentence file
-    path = root + '/Rx-thorax-automatic-captioning/' + 'sentences_reports_aut_labeled.csv'
-    df = pd.read_csv(path, sep = ',' ,dtype = str)
-    df = df[(df.codigoinforme.astype(int) > 3200000) & (df.codigoinforme.astype(int) < 4750000)]
-    set_all = set(df.text.values)
-    #exclude sentences used in training set
-    sent_labels = '/manual_review/labeled_sent_28K.csv'
-    path = root + '/Rx-thorax-automatic-captioning' + sent_labels
-    column_names = ['text','topic', 'counts']
-    column_names.extend(list('123456789'))
-    training = pd.read_csv(path, sep = ',',  header = 0, names =column_names)
-    set_training = set(training.text.values)
-    set_test = set_all - set_training
+elif args.test:
+    def generateRandomTestSample(n = 1000):
+        #load sentence file
+        path = root + '/Rx-thorax-automatic-captioning/' + 'sentences_reports_aut_labeled.csv'
+        df = pd.read_csv(path, sep = ',' ,dtype = str)
+        df = df[(df.codigoinforme.astype(int) > 3200000) & (df.codigoinforme.astype(int) < 4750000)]
+        set_all = set(df.text.values)
+        #exclude sentences used in training set
+        sent_labels = '/manual_review/labeled_sent_28K.csv'
+        path = root + '/Rx-thorax-automatic-captioning' + sent_labels
+        column_names = ['text','topic', 'counts']
+        column_names.extend(list('123456789'))
+        training = pd.read_csv(path, sep = ',',  header = 0, names =column_names)
+        set_training = set(training.text.values)
+        set_test = set_all - set_training
 
-    #choose n random senteces
-    import random
-    random.seed(1234)
-    test_1K = random.sample(set_test, n)
-    test_1K = pd.DataFrame({'text':test_1K})
+        #choose n random senteces
+        import random
+        random.seed(1234)
+        test_1K = random.sample(set_test, n)
+        test_1K = pd.DataFrame({'text':test_1K})
 
-    #load pred labels
-    sentence_test_1K = pd.merge(df,test_1K, on='text', how= 'right')
-    sentence_test_1K.drop_duplicates(subset='text', inplace=True)
-    print(sentence_test_1K.shape)
+        #load pred labels
+        sentence_test_1K = pd.merge(df,test_1K, on='text', how= 'right')
+        sentence_test_1K.drop_duplicates(subset='text', inplace=True)
+        print(sentence_test_1K.shape)
 
-    sentence_test_1K['labels'] = sentence_test_1K[sentence_test_1K.columns[3:]].apply(lambda x: "".join(x.dropna().values),axis=1)
-    sentence_test_1K['labels'] = sentence_test_1K.labels.str.replace(r'(,\)|[()\'\"])','').str.split(',')
-
-
-    #save sentence_test_1K.csv 
-    sentence_test_1K.to_csv('sentences_test_1K.csv', columns= ['text','labels'])
-    return
-
-def testRandomSample(n = 501):
-    mlb = joblib.load('mlb.pkl') #load coder/decoder from labels to one-hot and viceversa
-    
-    #load labeled sample test
-    file = '/manual_review/labeled_test_500.csv' 
-    path = root + '/Rx-thorax-automatic-captioning' + file
-    sent_labels = pd.read_csv(path, sep = ',',  header = 0,  nrows = int(n))
-    sent_labels['labels_set'] = sent_labels[sent_labels.columns[1:]].apply(lambda x: labels2set(x), axis=1)
-    print(sent_labels['labels_set'].head())
+        sentence_test_1K['labels'] = sentence_test_1K[sentence_test_1K.columns[3:]].apply(lambda x: "".join(x.dropna().values),axis=1)
+        sentence_test_1K['labels'] = sentence_test_1K.labels.str.replace(r'(,\)|[()\'\"])','').str.split(',')
 
 
-    #load predicted labels sample test
-    file = '/_sentences_test_1K.csv'
-    path = root + '/Rx-thorax-automatic-captioning' + file
-    sent_labels_pred = pd.read_csv(path, sep = ',',  header = 0,  nrows = int(n), )
-    sent_labels_pred['labels_set_pred'] = sent_labels_pred[sent_labels_pred.columns[1:]].apply(lambda x: labels2set(x), axis=1)
-    print(sent_labels_pred['labels_set_pred'].head())
-    
-    merge = pd.merge(sent_labels, sent_labels_pred, how='left', on= 'text')
-    merge.drop_duplicates(inplace=True, subset = 'text')
-    print(merge['labels_set_pred'].head())
+        #save sentence_test_1K.csv 
+        sentence_test_1K.to_csv('sentences_test_1K.csv', columns= ['text','labels'])
+        return
 
-    
-    #convert to vector
-    y= merge['labels_set'].apply(lambda x: list(mlb.transform([x])[0]))
-    y_pred= merge['labels_set_pred'].apply(lambda x: list(mlb.transform([x])[0]))
-    
-    y_pred = np.vstack( y_pred)
-    y = np.vstack( y )
-    
-    print(y_pred.shape)
-    print(y.shape)
+    def testRandomSample(n = 65):
+        mlb = joblib.load(iteration + 'mlb.pkl') #load coder/decoder from labels to one-hot and viceversa
+        
+        
+        #load labeled sample test
+        file = '/manual_review/labeled_test_500.csv' 
+        file = '/manual_review/labeled_test_' + iteration + '.csv' 
+        path = root + '/Rx-thorax-automatic-captioning' + file
+        sent_labels = pd.read_csv(path, sep = ',',  header = 0,  nrows = int(n))
+        sent_labels['labels_set'] = sent_labels[sent_labels.columns[1:]].apply(lambda x: labels2set(x), axis=1)
+        #print(sent_labels['labels_set'].head())
 
-    #compute metrics
-    metrics = (f1_score(y, y_pred, average='macro'),
-    f1_score(y, y_pred, average='micro'),
-    f1_score(y, y_pred, average='weighted'),
-    accuracy_score(y, y_pred))
-    print (metrics)
 
-    return metrics 
+        #load predicted labels sample test
+        file = '/_sentences_test_1K.csv'
+        file = '/manual_review/predicted_labeled_test_' + iteration + '.csv'
+        path = root + '/Rx-thorax-automatic-captioning' + file
+        sent_labels_pred = pd.read_csv(path, sep = ',',  header = 0,  nrows = int(n), )
+        sent_labels_pred['labels_set_pred'] = sent_labels_pred[sent_labels_pred.columns[1:]].apply(lambda x: labels2set(x), axis=1)
+        #print(sent_labels_pred['labels_set_pred'].head())
+        
+        merge = pd.merge(sent_labels, sent_labels_pred, how='left', on= 'text')
+        merge.drop_duplicates(inplace=True, subset = 'text')
+        print(merge['labels_set_pred'].head())
+        merge = merge.loc[~merge['labels_set_pred'].isna()]
+        print(merge.shape)
+
+        
+        #convert to vector
+        y= merge['labels_set'].apply(lambda x: list(mlb.transform([x])[0]))
+        y_pred= merge['labels_set_pred'].apply(lambda x: list(mlb.transform([x])[0]))
+
+        #
+        
+        y_pred = np.vstack( y_pred)
+        y = np.vstack( y )
+        
+        print(y_pred.shape)
+        print(y.shape)
+
+        #compute metrics
+        metrics = (f1_score(y, y_pred, average='macro'),
+        f1_score(y, y_pred, average='micro'),
+        f1_score(y, y_pred, average='weighted'),
+        accuracy_score(y, y_pred))
+        print (metrics)
+        
+        
+        from sklearn.metrics import precision_recall_fscore_support
+        #compute metrics per label
+        df = pd.DataFrame(columns = ['label', 'precision', 'recall', 'fbeta_score', 'test_support'])
+        i = 0
+        for l in mlb.classes_: 
+            
+            label_y = y[:,i]
+            label_y_pred = y_pred[:,i]
+            p,r,f,s = precision_recall_fscore_support(label_y,label_y_pred, labels = [1])
+            df = df.append({'label':l,'precision':p[0], 'recall':r[0], 'fbeta_score':f[0], 'test_support':s[0] },  ignore_index=True )
+            #print (l,p,r,f,s)
+            i = i + 1
+        df.to_csv(root + '/Rx-thorax-automatic-captioning/manual_review/metric_test_' + iteration + '.csv')
+        return df 
+    testRandomSample(n=65)
