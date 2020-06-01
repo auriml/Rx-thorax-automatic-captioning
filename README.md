@@ -1,7 +1,18 @@
-# PADCHEST Dataset (note: under construction...)
+# PADCHEST Dataset 
 
 The PADCHEST dataset is a chest x-ray labeled dataset containing 160K high resolution images with their corresponding labeled reports. Its detailed description and labeling methods are described in [1].  
-This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License and is downloadble from http://bimcv.cipf.es/va/2_projectes/padchest/. For attribution, please cite as [1]. 
+Use of the PadChest is free to all researchers. Researchers seeking to use the full Clinical Database must formally request access in http://bimcv.cipf.es/bimcv-projects/padchest/ . By requesting access the user agrees that (1) he/she will not share the data, (2) he/she will make no attempt to reidentify individuals. The PadChest, although de-identified, still contains information regarding the clinical care of patients, and must be treated with appropriate respect. For attribution, please cite as [1]. 
+
+## Multilabel Annotation 
+
+PadChest includes more than 160,000 images obtained from 67,000 patients
+that were interpreted and reported by radiologists at San Juan Hospital (Spain) from 2009 to 2017, covering six dierent position
+views, and including additional information on image acquisition and patient demography. Padchest’s labels were extracted from the
+radiological reports applying a Natural Language Processing (NLP) annotation pipeline based on bidirectional
+Long Short-Term Memory Networks (LSTM) with attention mechanisms which was used to label the 73% of the reports using a ground-truth that was curated manually by trained physicians. It resulted in the annotation of 19 differential diagnoses, 103 anatomic locations and 179 dierent radiological findings mapped onto the NLM standard Unified Medical Language System (UMLS) using controlled biomedical vocabulary unique identifiers (CUIs) that were further organized into semantic hierarchical concept trees. 
+
+## COVID19 pandemic
+Padchest was obtained before the COVID19 pandemic but is the only pre-pandemic open large-scale dataset that provides labels for different patterns of infiltrates, consolidations, pneumonia and ground glass opacities, including their anatomical localizations as needed to diagnose COVID 19 pneumonia. In addition PadChest is a the largest medical image dataset that has succeeded in applying deep learning based methods for annotation purposes from natural lenguage.  Because of these, the BIMCV-COVID19 dataset http://bimcv.cipf.es/bimcv-projects/bimcv-covid19/ ,which is the largest released dataset on COVID19 pneumonia as of May 20, has applied the same methodology for annotation resulting in 22 differential diagnoses, 122 anatomic locations and 189 different radiological findings mapped onto standard Unified Medical Language System (UMLS) using controlled biomedical vocabulary unique identifiers (CUIs). This code repository contains the annotation pipeline for PadChest and further adapted for the annotation of BIMCV-COVID19 dataset.
 
 ## PADCHEST Folder Structure: 
 Images are distributed in 54 zip files adding up to 1 TB. 
