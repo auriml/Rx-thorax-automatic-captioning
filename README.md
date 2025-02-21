@@ -143,6 +143,30 @@ The labels are classified in three different treess: differential diagnosis, rad
 To retrieve all relevant images that contains the childs of one term of interest, please consult the appropriate tree and include in the search the corresponding child’s labels or CUIs for this term.
 Please note that LabelsLocalizationsBySentence includes all labels for each sentence, and therefore "Normal" or "Exclude" on this field does not imply that the image is "Normal" or should be Excluded (respectively). Instead the labels on this field are the annotations to each sentence and are not aggregated at report level. Therefore, for retrieval and counts of number of images, studies or reports, use the fields Labels, Locations, LabelsCUIs and/or LocalizationsCUIS.  
 
+
+
+
+## DICOM-TO-PNG PREPROCESSING 
+
+
+### OVERVIEW OF THE IMAGE PREPROCESSING PIPELINE 
+
+In PadChest, each DICOM file is read to obtain Rows, Columns, WindowCenter, and WindowWidth, then converted into a NumPy array. A straightforward windowing transformation (clipping and linearly scaling around WindowCenter ± WindowWidth/2) is then applied, producing a final array in the [0,1] range. 
+
+### 16-BIT PNG OUTPUT 
+
+Although no explicit 16-bit flag is set, scikit-image’s imsave automatically writes the [0,1] float array as a 16-bit PNG (i.e., scaling values to 0–65,535). This preserves a higher grayscale resolution. Note that while many standard image viewers may not support interactive re-windowing of PNG files, users can easily load a 16-bit PNG into a numeric array and apply any custom windowing or filtering they require. In effect, the conversion loses only the original DICOM intensity scale (window/level, LUT, etc.) and not the underlying data quality. 
+
+### NO ADDITIONAL PREPROCESSING 
+
+No histogram equalization, resizing, or padding is performed. The PNG image retains the original DICOM spatial dimensions. Consequently, although subtle findings might appear less enhanced when viewed in default software, advanced users are free to perform additional windowing and filtering post hoc. 
+
+### CONSIDERATIONS FOR INTERACTIVE VIEWING 
+
+Storing images as 16-bit PNGs means that interactive windowing—as available in specialized DICOM viewers—may not be immediately accessible in all image viewers. However, this is a limitation of the viewing software rather than of the data itself. Users can load the PNG into their analysis environment and apply any desired windowing or filtering to optimize visualization. Similarly, while no advanced filtering or interpolation is applied during conversion, this deliberate choice preserves the raw image data and spatial fidelity, allowing users to implement their own processing methods as needed. 
+
+In summary, this process generates 16-bit PNGs via a linear windowing and scaling step, preserving the underlying image data while sacrificing only the original DICOM intensity parameters for convenience in standardized output. 
+
 Ref:
 
 [1] A. Bustos, A. Pertusa, JM. Salinas, M. de la Iglesia. PadChest: A large chest x-ray image dataset with multi-label annotated reports. (Publication Ongoing)
